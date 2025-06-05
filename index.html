@@ -10,6 +10,7 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
     <style>
         /* 添加一些基础样式，确保图标尺寸正确 */
         i[data-lucide] {
@@ -69,14 +70,18 @@
     <script type="text/babel">
         const { useState, useEffect, Fragment } = React; // 从全局 React 对象中获取 Hooks
 
+        const SUPABASE_URL = 'https://bojodbpcvgrkbsxtfnfi.supabase.co'; // 替换成你的 Supabase 项目 URL
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJvam9kYnBjdmdya2JzeHRmbmZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDkxMDAzNzUsImV4cCI6MjA2NDY3NjM3NX0.xaAVHAZ8fpmbEYSAPXjbKEqndWEowFcFHFrwMPOWigY'; // 替换成你的 Supabase anon key
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
         // 直接在这里定义 Lucide 图标组件的替代方案，或者在JSX中使用 <i> 标签
         // 为了简单起见，我们将直接在JSX中使用 <i data-lucide="..."></i> 并用useEffect更新
 
-        const LucaPointsSystem = () => {
+        function LucaPointsSystem() {
           const [totalPoints, setTotalPoints] = useState(0);
           const [viewMode, setViewMode] = useState('today');
           const [selectedDate, setSelectedDate] = useState(new Date());
-          const [history, setHistory] = useState({});
+          const [history, setHistory] = useState([]);
           const [showRewards, setShowRewards] = useState(false);
           const [showAddTask, setShowAddTask] = useState(false);
           const [editingTask, setEditingTask] = useState(null);
@@ -90,38 +95,9 @@
           const [childName, setChildName] = useState('');
           const [isUpdating, setIsUpdating] = useState(false);
           const [pendingHistory, setPendingHistory] = useState(null);
-          const [tasks, setTasks] = useState({
-            daily: [
-              { id: 'homework', name: '完成学校作业', nameEn: 'School Homework', points: 20, icon: '📚' },
-              { id: 'chinese', name: '学习中文', nameEn: 'Chinese Study', points: 15, icon: '🇨🇳' },
-              { id: 'french', name: '学习法语', nameEn: 'French Study', points: 15, icon: '🇫🇷' },
-              { id: 'piano', name: '练钢琴', nameEn: 'Piano Practice', points: 15, icon: '🎹' },
-              { id: 'diary', name: '写日记', nameEn: 'Write Diary', points: 10, icon: '📝' },
-              { id: 'reading', name: 'Reading Theory', nameEn: 'Reading Theory', points: 15, icon: '📖' },
-              { id: 'math', name: '数学练习', nameEn: 'Math Practice', points: 15, icon: '🔢' }
-            ],
-            behavior: [
-              { id: 'organize', name: '物品归位', nameEn: 'Organize Things', points: 5, icon: '🗂️' },
-              { id: 'hygiene', name: '洗澡刷牙', nameEn: 'Shower & Brush Teeth', points: 5, icon: '🚿' },
-              { id: 'bedtime', name: '准时睡觉', nameEn: 'Sleep on Time', points: 10, icon: '😴' }
-            ],
-            penalties: [
-              { id: 'notidy', name: '房间不整洁', nameEn: 'Messy Room', points: -10, icon: '🏠' },
-              { id: 'argue', name: '争吵打架', nameEn: 'Fighting/Arguing', points: -20, icon: '😤' },
-              { id: 'nohomework', name: '忘记带作业', nameEn: 'Forgot Homework', points: -15, icon: '🎒' },
-              { id: 'screentime', name: '超时看屏幕', nameEn: 'Too Much Screen Time', points: -10, icon: '📱' },
-              { id: 'lying', name: '说谎', nameEn: 'Lying', points: -25, icon: '🤥' }
-            ]
-          });
+          const [tasks, setTasks] = useState([]);
           
-          const [rewards, setRewards] = useState([
-            { id: 'roblox30', name: 'Roblox 30分钟', nameEn: '30min Roblox', cost: 50, icon: '🎮' },
-            { id: 'roblox60', name: 'Roblox 1小时', nameEn: '1hr Roblox', cost: 90, icon: '🎮' },
-            { id: 'movie', name: '看电影', nameEn: 'Movie Time', cost: 100, icon: '🎬' },
-            { id: 'treat', name: '特别零食', nameEn: 'Special Treat', cost: 40, icon: '🍰' },
-            { id: 'lateBed', name: '晚睡30分钟', nameEn: '30min Later Bedtime', cost: 60, icon: '🌙' },
-            { id: 'playdate', name: '朋友聚会', nameEn: 'Playdate', cost: 120, icon: '👫' }
-          ]);
+          const [rewards, setRewards] = useState([]);
           
           const emojiOptions = ['⭐', '📚', '🎯', '💪', '🏃', '🎨', '🧩', '🎪', '🌟', '💎', '🔥', '⚡', '🌈', '🎭', '🎸'];
 
@@ -133,19 +109,38 @@
             icon: '🎁'
           });
 
-          useEffect(() => {
-            fetch('http://localhost:3002/api/points')
-              .then(res => res.json())
-              .then(data => {
-                setHistory(data.history);
-              });
-          }, []);
+          const [currentUser, setCurrentUser] = useState(null);
 
-          useEffect(() => {
-            fetch('http://localhost:3002/api/childName')
-              .then(res => res.json())
-              .then(data => setChildName(data.childName));
-          }, []);
+          // 预设任务和奖励
+          const DEFAULT_TASKS = [
+            // 每日任务 Daily Tasks
+            { name: '完成学校作业', nameEn: 'Finish Homework', points: 20, icon: '📚', type: 'daily' },
+            { name: '学习中文', nameEn: 'Learn Chinese', points: 15, icon: '🈶', type: 'daily' },
+            { name: '学习法语', nameEn: 'Learn French', points: 15, icon: '🇫🇷', type: 'daily' },
+            { name: '写日记', nameEn: 'Write Diary', points: 10, icon: '📝', type: 'daily' },
+            { name: '数学练习', nameEn: 'Math Practice', points: 15, icon: '➗', type: 'daily' },
+            { name: 'Read Theory', nameEn: 'Read Theory', points: 15, icon: '📖', type: 'daily' },
+
+            // 行为习惯 Good Habits
+            { name: '洗澡刷牙', nameEn: 'Shower & Brush Teeth', points: 5, icon: '🛁', type: 'behavior' },
+            { name: '物品归位', nameEn: 'Put Things Back', points: 5, icon: '🧸', type: 'behavior' },
+            { name: '准时睡觉', nameEn: 'Go to Bed on Time', points: 5, icon: '🛏️', type: 'behavior' },
+
+            // 扣分项 Penalties
+            { name: '房间不整洁', nameEn: 'Messy Room', points: -10, icon: '🏡', type: 'penalties' },
+            { name: '争吵打架', nameEn: 'Fighting/Arguing', points: -20, icon: '😤', type: 'penalties' },
+            { name: '忘记带作业', nameEn: 'Forgot Homework', points: -15, icon: '🎒', type: 'penalties' },
+            { name: '超时看屏幕', nameEn: 'Too Much Screen Time', points: -10, icon: '📱', type: 'penalties' },
+            { name: '说谎', nameEn: 'Lying', points: -25, icon: '🤔', type: 'penalties' }
+          ];
+          const DEFAULT_REWARDS = [
+            { name: 'Roblox 30分钟', nameEn: '30min Roblox', cost: 50, icon: '🎮' },
+            { name: 'Roblox 1小时', nameEn: '1hr Roblox', cost: 90, icon: '🎮' },
+            { name: '看电影', nameEn: 'Movie Time', cost: 100, icon: '🎬' },
+            { name: '特别零食', nameEn: 'Special Treat', cost: 40, icon: '🍰' },
+            { name: '晚睡30分钟', nameEn: '30min Later Bedtime', cost: 60, icon: '🌙' },
+            { name: '朋友聚会', nameEn: 'Playdate', cost: 120, icon: '👫' }
+          ];
 
           useEffect(() => {
             lucide.createIcons();
@@ -153,13 +148,11 @@
 
           useEffect(() => {
             let total = 0;
-            Object.values(history).forEach(dayArr => {
-              if (Array.isArray(dayArr)) {
-                dayArr.forEach(item => {
-                  total += item.points;
-                });
-              }
-            });
+            if (Array.isArray(history)) {
+              history.forEach(item => {
+                total += item.points;
+              });
+            }
             setTotalPoints(total);
           }, [history]);
 
@@ -187,120 +180,261 @@
             localStorage.setItem('kidsRewards', JSON.stringify(rewards));
           }, [tasks, rewards]);
 
-          const toggleTask = (category, taskId) => {
+          useEffect(() => {
+            const btn = document.getElementById('login-btn');
+            if (btn) {
+              btn.onclick = async () => {
+                const email = document.getElementById('login-email').value.trim();
+                const tip = document.getElementById('login-tip');
+                if (!email) {
+                  tip.innerText = '请输入邮箱';
+                  return;
+                }
+                tip.innerText = '正在发送登录链接...';
+                const { error } = await supabase.auth.signInWithOtp({ email });
+                if (error) {
+                  tip.innerText = '发送失败: ' + error.message;
+                } else {
+                  tip.innerText = '登录链接已发送到邮箱，请查收！';
+                }
+              };
+            }
+          }, []);
+
+          useEffect(() => {
+            // 检查用户是否已登录
+            supabase.auth.getUser().then(({ data: { user } }) => {
+              setCurrentUser(user || null);
+            });
+          }, []);
+
+          useEffect(() => {
+            // 监听登录状态变化
+            const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+              setCurrentUser(session?.user || null);
+            });
+            return () => {
+              subscription.unsubscribe();
+            };
+          }, []);
+
+          useEffect(() => {
+            if (currentUser) {
+              supabase
+                .from('tasks')
+                .select('*')
+                .eq('user_id', currentUser.id)
+                .then(({ data, error }) => {
+                  if (error) {
+                    alert('加载任务失败: ' + error.message);
+                  } else {
+                    setTasks(data || []);
+                  }
+                });
+            } else {
+              setTasks([]);
+            }
+          }, [currentUser]);
+
+
+          // 自动为新用户插入预设任务和奖励
+          useEffect(() => {
+            if (currentUser) {
+              // 检查任务
+              console.log('准备插入预设任务');
+              supabase
+                .from('tasks')
+                .select('*')
+                .eq('user_id', currentUser.id)
+                .then(async ({ data, error }) => {
+                  if (!error && data.length === 0) {
+                    await supabase.from('tasks').insert(
+                      DEFAULT_TASKS.map(t => ({
+                        user_id: currentUser.id,
+                        name: t.name,
+                        nameEn: t.nameEn || '',
+                        points: t.points,
+                        icon: t.icon || '',
+                        type: t.type || 'daily'
+                      }))
+                    );
+                    // 重新加载
+                    const { data: newTasks } = await supabase.from('tasks').select('*').eq('user_id', currentUser.id);
+                    setTasks(newTasks || []);
+                    console.log('setTasks', newTasks);
+                  } else {
+                    setTasks(data || []);
+                  }
+                });
+
+              // 检查奖励
+              supabase
+                .from('rewards')
+                .select('*')
+                .eq('user_id', currentUser.id)
+                .then(async ({ data, error }) => {
+                  if (!error && data.length === 0) {
+                    // 没有奖励，插入预设
+                    await supabase.from('rewards').insert(
+                      DEFAULT_REWARDS.map(r => ({
+                        ...r,
+                        user_id: currentUser.id
+                      }))
+                    );
+                    // 重新加载
+                    const { data: newRewards } = await supabase.from('rewards').select('*').eq('user_id', currentUser.id);
+                    setRewards(newRewards || []);
+                  } else {
+                    setRewards(data || []);
+                  }
+                });
+            } else {
+              setTasks([]);
+              setRewards([]);
+            }
+          }, [currentUser]);
+
+          // 用 Supabase 查询 history
+          useEffect(() => {
+            if (currentUser) {
+              supabase
+                .from('history')
+                .select('*')
+                .eq('user_id', currentUser.id)
+                .then(({ data, error }) => {
+                  if (!error) setHistory(data || []);
+                });
+            } else {
+              setHistory([]);
+            }
+          }, [currentUser]);
+
+          // 改为从 localStorage 中读取 childName
+          useEffect(() => {
+            const savedChildName = localStorage.getItem('childName');
+            if (savedChildName) setChildName(savedChildName);
+          }, []);
+
+          // 改为在 childName 变化时自动保存到 localStorage
+          useEffect(() => {
+            if (childName) localStorage.setItem('childName', childName);
+          }, [childName]);
+
+          
+          const toggleTask = async (category, taskId) => {
             if (isUpdating) return;
             const dateStr = getLocalDateStr(selectedDate);
-            const task = tasks[category].find(t => t.id === taskId);
-            
-            if (pendingHistory !== null) {
-              const already = pendingHistory.some(item => item.task === task.name && item.type === category);
-              let newPending;
-              if (already) {
-                newPending = pendingHistory.filter(item => !(item.task === task.name && item.type === category));
-              } else {
-                newPending = [...pendingHistory, { task: task.name, type: category, points: task.points }];
+            const task = tasks.find(t => t.id === taskId);
+            if (!task) return;
+
+            // 获取当天历史
+            const dayHistory = Array.isArray(history) ? history.filter(item => item.date === dateStr) : [];
+            const already = dayHistory.some(item => item.task === task.name && item.type === category);
+
+            setIsUpdating(true);
+
+            if (already) {
+              // 删除该条记录
+              const itemToDelete = dayHistory.find(item => item.task === task.name && item.type === category);
+              if (itemToDelete) {
+                await supabase.from('history').delete().eq('id', itemToDelete.id);
               }
-              setPendingHistory(newPending);
             } else {
-              const dayHistory = history[dateStr] || [];
-              const already = dayHistory.some(item => item.task === task.name && item.type === category);
-              setIsUpdating(true);
-              if (already) {
-                const newDayHistory = dayHistory.filter(item => !(item.task === task.name && item.type === category));
-                setHistory(prev => ({ ...prev, [dateStr]: newDayHistory }));
-              } else {
-                const newDayHistory = [...dayHistory, { task: task.name, type: category, points: task.points }];
-                setHistory(prev => ({ ...prev, [dateStr]: newDayHistory }));
+              // 插入新记录
+              await supabase.from('history').insert([{
+                date: dateStr,
+                task: task.name,
+                type: category,
+                points: task.points,
+                user_id: currentUser.id
+              }]);
+            }
+
+            // 刷新 history
+            const { data } = await supabase.from('history').select('*').eq('user_id', currentUser.id);
+            setHistory(data || []);
+            setIsUpdating(false);
+          };
+          const addTask = async (newTask) => {
+            if (!currentUser) {
+              alert('请先登录');
+              return;
+            }
+            const { error } = await supabase.from('tasks').insert([
+              {
+                user_id: currentUser.id,
+                name: newTask.name,
+                nameEn: newTask.nameEn,
+                points: newTask.points,
+                icon: newTask.icon,
+                type: newTask.type
               }
-              addHistory(dateStr, task.name, category, already ? -task.points : task.points);
+            ]);
+            if (error) {
+              alert('添加任务失败: ' + error.message);
+            } else {
+              // 重新加载任务
+              const { data } = await supabase.from('tasks').select('*').eq('user_id', currentUser.id);
+              setTasks(data || []);
             }
           };
           
-          const addTask = () => {
-            const name = document.getElementById('taskName').value.trim();
-            const points = parseInt(document.getElementById('taskPoints').value);
-            const type = document.getElementById('taskType').value;
-            
-            if (!name || isNaN(points) || points <= 0) {
-                alert('请输入有效的任务名称和分值');
-                return;
-            }
-
-            const task = {
-                id: Date.now(),
-                name,
-                points: type === 'negative' ? -points : points,
-                type
-            };
-
-            setTasks(prev => ({
-                ...prev,
-                [type]: [...prev[type], task]
-            }));
-            
-            setNewTask({ name: '', points: 10, icon: '⭐', category: 'daily' });
-            setShowAddTask(false);
-          };
-          
-          const deleteTask = (category, taskId) => {
-            if (confirm('确定要删除这个任务吗？ Are you sure you want to delete this task?')) {
-                setTasks(prev => ({
-                    ...prev,
-                    [category]: prev[category].filter(t => t.id !== taskId)
-                }));
-            }
+          const deleteTask = async (taskId) => {
+            if (!currentUser) return;
+            await supabase.from('tasks').delete().eq('id', taskId).eq('user_id', currentUser.id);
+            // 重新加载任务
+            const { data } = await supabase.from('tasks').select('*').eq('user_id', currentUser.id);
+            setTasks(data || []);
           };
           
           const startEditTask = (task) => {
              setEditingTask(task);
           };
 
-          const handleUpdateTask = (category, taskId, updates) => {
-             setTasks(prev => ({
-                ...prev,
-                [category]: prev[category].map(t => 
-                  t.id === taskId ? { ...t, ...updates } : t
-                )
-             }));
+          const handleUpdateTask = (taskId, updates) => {
+             setTasks(prev => prev.map(t => 
+               t.id === taskId ? { ...t, ...updates } : t
+             ));
              // If we are directly updating, we might not need editingTask state like this
              // For simplicity, we'll update directly. If a modal was used, setEditingTask(null) would be here.
           };
           
-          const saveEditedTask = (category, taskId, currentEditedTaskState) => {
+          const saveEditedTask = (taskId, currentEditedTaskState) => {
             // currentEditedTaskState would be the state from the editing form
             // This function is conceptual if editing is done in a separate form/modal.
             // In TaskCard, it updates directly.
-            setTasks(prev => ({
-              ...prev,
-              [category]: prev[category].map(t => 
-                t.id === taskId ? { ...t, ...currentEditedTaskState } : t
-              )
-            }));
+            setTasks(prev => prev.map(t => 
+              t.id === taskId ? { ...t, ...currentEditedTaskState } : t
+            ));
             setEditingTask(null); // Close editing mode
           };
 
-          const redeemReward = (reward) => {
+          const redeemReward = async (reward) => {
             if (totalPoints >= reward.cost) {
-              // 判断当前日期：补录模式写入补录日期，否则写入今天
               const dateStr = pendingHistory !== null
                 ? getLocalDateStr(selectedDate)
                 : getLocalDateStr(new Date());
-              fetch('http://localhost:3002/api/history', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  date: dateStr,
-                  task: reward.name + '兑换',
-                  type: 'redeem',
-                  points: -reward.cost
-                })
-              }).then(() => {
+              // 用 Supabase 插入 history
+              const { error } = await supabase
+                .from('history')
+                .insert([
+                  {
+                    date: dateStr,
+                    task: reward.name + '兑换',
+                    type: 'redeem',
+                    points: -reward.cost,
+                    user_id: currentUser.id
+                  }
+                ]);
+              if (!error) {
                 alert(`太棒了! 你兑换了 ${reward.name} / Great! You redeemed ${reward.nameEn}! 🎉`);
-                // 刷新历史，自动同步总分
-                fetch('http://localhost:3002/api/history')
-                  .then(res => res.json())
-                  .then(data => setHistory(data));
-              });
+                // 用 Supabase 刷新 history
+                const { data } = await supabase
+                  .from('history')
+                  .select('*')
+                  .eq('user_id', currentUser.id);
+                setHistory(data || []);
+              }
             } else {
               alert('积分不足哦! / Not enough points! 🙁');
             }
@@ -308,10 +442,9 @@
 
           const getCompletionRate = (date = selectedDate) => {
             const dateStr = getLocalDateStr(date);
-            const dayHistory = history[dateStr] || [];
+            const dayHistory = Array.isArray(history) ? history.filter(item => item.date === dateStr) : [];
             let totalPossible = 0;
-            tasks.daily.forEach(t => { if (t.points > 0) totalPossible += t.points; });
-            tasks.behavior.forEach(t => { if (t.points > 0) totalPossible += t.points; });
+            tasks.forEach(t => { if (t.points > 0) totalPossible += t.points; });
             if (totalPossible === 0) return 0;
             let actual = 0;
             if (Array.isArray(dayHistory)) {
@@ -326,7 +459,7 @@
 
           const getDayPoints = (date) => {
             const dateStr = getLocalDateStr(date);
-            const dayHistory = history[dateStr] || [];
+            const dayHistory = Array.isArray(history) ? history.filter(item => item.date === dateStr) : [];
             let total = 0;
             if (Array.isArray(dayHistory)) {
               dayHistory.forEach(item => {
@@ -338,7 +471,9 @@
 
           const TaskCard = ({ task, category }) => {
             const dateStr = getLocalDateStr(selectedDate);
-            const dayHistory = pendingHistory !== null ? pendingHistory : (history[dateStr] || []);
+            // dayHistory 只取当天的记录
+            const dayHistory = Array.isArray(history) ? history.filter(item => item.date === dateStr) : [];
+            // 判断是否已完成（勾选）
             const isCompleted = dayHistory.some(item => item.task === task.name && item.type === category);
             const isPenalty = category === 'penalties';
             
@@ -354,7 +489,7 @@
 
             const handleSave = () => {
               const updatedPoints = isPenalty ? -Math.abs(editPoints) : Math.abs(editPoints);
-              handleUpdateTask(category, task.id, {
+              handleUpdateTask(task.id, {
                 name: editName,
                 nameEn: editNameEn,
                 points: updatedPoints,
@@ -463,7 +598,7 @@
                     </button>
                     <button
                       type="button"
-                      onClick={e => { e.stopPropagation(); deleteTask(category, task.id); }}
+                      onClick={e => { e.stopPropagation(); deleteTask(task.id); }}
                       className="w-6 h-6 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-red-100 hover:text-red-600 transition"
                       title="删除任务 Delete Task"
                     >
@@ -492,7 +627,7 @@
             const dateToBalance = {};
             allDates.forEach(date => {
               const dateStr = getLocalDateStr(date);
-              const dayHistory = history[dateStr] || [];
+              const dayHistory = Array.isArray(history) ? history.filter(item => item.date === dateStr) : [];
               if (Array.isArray(dayHistory)) {
                 dayHistory.forEach(item => {
                   runningTotal += typeof item.points === 'number' ? item.points : 0;
@@ -510,7 +645,7 @@
                 <div className="space-y-3 max-h-[calc(100vh-250px)] overflow-y-auto pr-2">
                   {dates.map(date => {
                     const dateStr = getLocalDateStr(date);
-                    const dayHistory = history[dateStr] || [];
+                    const dayHistory = Array.isArray(history) ? history.filter(item => item.date === dateStr) : [];
                     let score = 0, penalty = 0, redeem = 0;
                     if (Array.isArray(dayHistory)) {
                       dayHistory.forEach(item => {
@@ -564,7 +699,7 @@
 
           const earnedTodayOrSelectedDay = (() => {
             const dateStr = getLocalDateStr(selectedDate);
-            const dayHistory = history[dateStr] || [];
+            const dayHistory = Array.isArray(history) ? history.filter(item => item.date === dateStr) : [];
             let total = 0;
             if (Array.isArray(dayHistory)) {
               dayHistory.forEach(item => {
@@ -577,21 +712,26 @@
           })();
           const completionRateForSelectedDay = getCompletionRate(selectedDate);
 
-          function addHistory(date, task, type, points) {
-            fetch('http://localhost:3002/api/history', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ date, task, type, points })
-            }).then(() => {
-              fetch('http://localhost:3002/api/history')
-                .then(res => res.json())
-                .then(data => {
-                  setHistory(data);
-                })
-                .finally(() => {
-                  setTimeout(() => setIsUpdating(false), 300);
-                });
-            });
+          async function addHistory(date, task, type, points) {
+            if (!currentUser) return;
+            setIsUpdating(true);
+            // 用 Supabase 插入 history
+            const { error } = await supabase
+              .from('history')
+              .insert([
+                { date, task, type, points, user_id: currentUser.id }
+              ]);
+            if (!error) {
+              // 用 Supabase 刷新 history
+              const { data } = await supabase
+                .from('history')
+                .select('*')
+                .eq('user_id', currentUser.id);
+              setHistory(data || []);
+            } else {
+              console.error('addHistory error:', error);
+            }
+            setIsUpdating(false);
           }
 
           // 工具函数：返回本地 yyyy-mm-dd 字符串
@@ -603,32 +743,34 @@
           }
 
           // 提交补录
-          const submitPendingHistory = () => {
+          const submitPendingHistory = async () => {
+            if (!currentUser) return;
             const dateStr = getLocalDateStr(selectedDate);
             // 先清空该日历史
-            fetch('http://localhost:3002/api/clearDay', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ date: dateStr })
-            }).then(() => {
-              // 再批量写入
-              Promise.all(
-                pendingHistory.map(item =>
-                  fetch('http://localhost:3002/api/history', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ date: dateStr, task: item.task, type: item.type, points: item.points })
-                  })
-                )
-              ).then(() => {
-                fetch('http://localhost:3002/api/history')
-                  .then(res => res.json())
-                  .then(data => setHistory(data));
-                setPendingHistory(null);
-                setSelectedDate(new Date());
-                alert('补录成功！Make-up records submitted!');
-              });
-            });
+            await supabase
+              .from('history')
+              .delete()
+              .eq('user_id', currentUser.id)
+              .eq('date', dateStr);
+            // 再批量写入
+            if (pendingHistory && pendingHistory.length > 0) {
+              await supabase.from('history').insert(
+                pendingHistory.map(item => ({
+                  ...item,
+                  date: dateStr,
+                  user_id: currentUser.id
+                }))
+              );
+            }
+            // 刷新 history
+            const { data } = await supabase
+              .from('history')
+              .select('*')
+              .eq('user_id', currentUser.id);
+            setHistory(data || []);
+            setPendingHistory(null);
+            setSelectedDate(new Date());
+            alert('补录成功！Make-up records submitted!');
           };
 
           // 添加任务函数
@@ -785,10 +927,12 @@
             setRewards(prev => prev.map(r => r.id === rewardId ? { ...r, ...updates } : r));
           };
           // 删除奖励
-          const deleteReward = (rewardId) => {
-            if (window.confirm('确定要删除这个奖励吗？ Are you sure you want to delete this reward?')) {
-              setRewards(prev => prev.filter(r => r.id !== rewardId));
-            }
+          const deleteReward = async (rewardId) => {
+            if (!currentUser) return;
+            await supabase.from('rewards').delete().eq('id', rewardId).eq('user_id', currentUser.id);
+            // 重新加载奖励
+            const { data } = await supabase.from('rewards').select('*').eq('user_id', currentUser.id);
+            setRewards(data || []);
           };
 
           return (
@@ -807,11 +951,6 @@
                       value={childName}
                       onChange={e => {
                         setChildName(e.target.value);
-                        fetch('http://localhost:3002/api/childName', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ childName: e.target.value })
-                        });
                       }}
                       className="border rounded px-2 py-1"
                       placeholder="请输入姓名"
@@ -890,6 +1029,42 @@
                   </div>
                 </header>
 
+                {!currentUser && (
+                  <div id="login-section" style={{ margin: '20px 0', textAlign: 'center' }}>
+                    <input
+                      id="login-email"
+                      type="email"
+                      placeholder="请输入邮箱 / Enter your email"
+                      style={{ padding: '8px', borderRadius: '6px', border: '1px solid #ccc', width: '220px', marginRight: '8px' }}
+                    />
+                    <button
+                      id="login-btn"
+                      style={{ padding: '8px 18px', borderRadius: '6px', background: '#2563eb', color: '#fff', border: 'none', cursor: 'pointer' }}
+                      onClick={async () => {
+                        const email = document.getElementById('login-email').value.trim();
+                        if (!email) {
+                          alert('请输入邮箱');
+                          return;
+                        }
+                        const { error } = await supabase.auth.signInWithOtp({ email });
+                        if (error) {
+                          alert('发送失败: ' + error.message);
+                        } else {
+                          alert('登录链接已发送到邮箱，请查收！');
+                        }
+                      }}
+                    >
+                      发送登录链接
+                    </button>
+                  </div>
+                )}
+                {currentUser && (
+                  <div>
+                    欢迎，{currentUser.email}！
+                    {/* 其他主页面内容 */}
+                  </div>
+                )}
+
                 {viewMode === 'history' && <HistoryView />}
 
                 {viewMode === 'today' && (
@@ -957,7 +1132,7 @@
                           </div>
                           <div className="md:col-span-2 flex gap-3 mt-2">
                             <button
-                              onClick={handleAddTask}
+                              onClick={() => addTask(newTask)}
                               className="bg-blue-500 text-white px-5 py-2 rounded-lg hover:bg-blue-600 transition flex items-center"
                             >
                               <i data-lucide="check" className="w-5 h-5 mr-1.5"></i> 添加 Add
@@ -979,21 +1154,21 @@
                             <i data-lucide="clipboard-list" className="w-6 h-6 mr-2 text-sky-500"></i>
                             每日任务 Daily Tasks
                             <button
-                              onClick={() => {
+                              onClick={async () => {
                                 if (window.confirm('确定要清空当天所有得分/扣分吗？\nAre you sure to clear all today\'s records?')) {
                                   const dateStr = getLocalDateStr(selectedDate);
-                                  fetch('http://localhost:3002/api/clearDay', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ date: dateStr })
-                                  })
-                                    .then(() => {
-                                      fetch('http://localhost:3002/api/points')
-                                        .then(res => res.json())
-                                        .then(data => {
-                                          setHistory(data.history);
-                                        });
-                                    });
+                                  // 用 Supabase 删除该用户该天的记录
+                                  await supabase
+                                    .from('history')
+                                    .delete()
+                                    .eq('user_id', currentUser.id)
+                                    .eq('date', dateStr);
+                                  // 刷新 history
+                                  const { data } = await supabase
+                                    .from('history')
+                                    .select('*')
+                                    .eq('user_id', currentUser.id);
+                                  setHistory(data || []);
                                 }
                               }}
                               className="ml-3 px-3 py-1.5 rounded-lg bg-red-500 text-white text-xs sm:text-sm font-medium hover:bg-red-600 transition-all flex items-center"
@@ -1004,7 +1179,7 @@
                             </button>
                         </h2>
                         <div className="space-y-3.5">
-                          {tasks.daily.map(task => (
+                          {tasks.filter(task => task.type === 'daily').map(task => (
                             <TaskCard key={task.id} task={task} category="daily" />
                           ))}
                         </div>
@@ -1016,7 +1191,7 @@
                             行为习惯 Good Habits
                         </h2>
                         <div className="space-y-3.5">
-                          {tasks.behavior.map(task => (
+                          {tasks.filter(task => task.type === 'behavior').map(task => (
                             <TaskCard key={task.id} task={task} category="behavior" />
                           ))}
                         </div>
@@ -1029,7 +1204,7 @@
                         扣分项目 Penalty Items
                       </h2>
                       <div className="grid md:grid-cols-2 gap-3.5">
-                        {tasks.penalties.map(task => (
+                        {tasks.filter(task => task.type === 'penalties').map(task => (
                           <TaskCard key={task.id} task={task} category="penalties" />
                         ))}
                       </div>
@@ -1079,7 +1254,7 @@
                             />
                             <div className="md:col-span-2 flex gap-3 mt-2">
                               <button
-                                onClick={handleAddReward}
+                                onClick={() => addReward(newReward)}
                                 className="bg-pink-500 text-white px-5 py-2 rounded-lg hover:bg-pink-600 transition flex items-center"
                               >
                                 <i data-lucide="check" className="w-5 h-5 mr-1.5"></i> 添加 Add
@@ -1119,7 +1294,7 @@
               </div>
             </div>
           );
-        };
+        }
 
         // 渲染主组件
         const container = document.getElementById('root');
