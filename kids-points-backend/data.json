@@ -32,28 +32,6 @@
         "type": "redeem",
         "points": -50
       }
-    ],
-    "2025-06-05": [
-      {
-        "task": "完成学校作业",
-        "type": "daily",
-        "points": 20
-      },
-      {
-        "task": "学习中文",
-        "type": "daily",
-        "points": 15
-      },
-      {
-        "task": "学习法语",
-        "type": "daily",
-        "points": 15
-      },
-      {
-        "task": "Roblox 30分钟兑换",
-        "type": "redeem",
-        "points": -50
-      }
     ]
   }
 }
