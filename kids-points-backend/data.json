@@ -1,0 +1,59 @@
+{
+  "childName": "Luca",
+  "history": {
+    "2025-06-04": [
+      {
+        "task": "洗澡刷牙",
+        "type": "behavior",
+        "points": 5
+      },
+      {
+        "task": "物品归位",
+        "type": "behavior",
+        "points": 5
+      },
+      {
+        "task": "数学练习",
+        "type": "daily",
+        "points": 15
+      },
+      {
+        "task": "写日记",
+        "type": "daily",
+        "points": 10
+      },
+      {
+        "task": "Reading Theory",
+        "type": "daily",
+        "points": 15
+      },
+      {
+        "task": "Roblox 30分钟兑换",
+        "type": "redeem",
+        "points": -50
+      }
+    ],
+    "2025-06-05": [
+      {
+        "task": "完成学校作业",
+        "type": "daily",
+        "points": 20
+      },
+      {
+        "task": "学习中文",
+        "type": "daily",
+        "points": 15
+      },
+      {
+        "task": "学习法语",
+        "type": "daily",
+        "points": 15
+      },
+      {
+        "task": "Roblox 30分钟兑换",
+        "type": "redeem",
+        "points": -50
+      }
+    ]
+  }
+}
