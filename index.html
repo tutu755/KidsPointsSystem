@@ -90,7 +90,7 @@
             nameEn: '',
             points: 10,
             icon: '⭐',
-            category: 'daily'
+            type: 'daily'
           });
           const [childName, setChildName] = useState('');
           const [isUpdating, setIsUpdating] = useState(false);
@@ -376,6 +376,7 @@
               // 重新加载任务
               const { data } = await supabase.from('tasks').select('*').eq('user_id', currentUser.id);
               setTasks(data || []);
+              alert('添加成功！');
             }
           };
           
@@ -777,7 +778,7 @@
           const handleAddTask = () => {
             if (newTask.name && newTask.nameEn) {
               const taskId = `custom_${Date.now()}`;
-              const category = newTask.category === 'penalty' ? 'penalties' : newTask.category;
+              const category = newTask.type === 'penalty' ? 'penalties' : newTask.type;
               
               setTasks(prev => ({
                 ...prev,
@@ -785,29 +786,39 @@
                   id: taskId, 
                   name: newTask.name, 
                   nameEn: newTask.nameEn, 
-                  points: newTask.category === 'penalty' ? -Math.abs(newTask.points) : Math.abs(newTask.points),
+                  points: newTask.type === 'penalty' ? -Math.abs(newTask.points) : Math.abs(newTask.points),
                   icon: newTask.icon 
                 }]
               }));
               
-              setNewTask({ name: '', points: 10, icon: '⭐', category: 'daily' });
+              setNewTask({ name: '', points: 10, icon: '⭐', type: 'daily' });
               setShowAddTask(false);
+              alert('添加成功！');
             }
           };
 
           // 添加奖励函数
-          const handleAddReward = () => {
-            if (newReward.name && newReward.nameEn) {
-              const rewardId = `custom_${Date.now()}`;
-              setRewards(prev => [...prev, {
-                id: rewardId,
+          const addReward = async (newReward) => {
+            if (!currentUser) {
+              alert('请先登录');
+              return;
+            }
+            const { error } = await supabase.from('rewards').insert([
+              {
+                user_id: currentUser.id,
                 name: newReward.name,
                 nameEn: newReward.nameEn,
-                cost: Math.abs(newReward.cost),
+                cost: newReward.cost,
                 icon: newReward.icon
-              }]);
-              setNewReward({ name: '', nameEn: '', cost: 50, icon: '🎁' });
-              setShowAddReward(false);
+              }
+            ]);
+            if (error) {
+              alert('添加奖励失败: ' + error.message);
+            } else {
+              // 重新加载奖励
+              const { data } = await supabase.from('rewards').select('*').eq('user_id', currentUser.id);
+              setRewards(data || []);
+              alert('添加成功！');
             }
           };
 
@@ -1101,13 +1112,13 @@
                             className="p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
                           />
                           <select
-                            value={newTask.category}
-                            onChange={(e) => setNewTask({ ...newTask, category: e.target.value })}
+                            value={newTask.type}
+                            onChange={e => setNewTask({ ...newTask, type: e.target.value })}
                             className="p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
                           >
                             <option value="daily">每日任务 Daily Task</option>
                             <option value="behavior">行为习惯 Behavior</option>
-                            <option value="penalty">扣分项 Penalty</option>
+                            <option value="penalties">扣分项 Penalty</option>
                           </select>
                           <input
                             type="number"
