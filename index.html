@@ -188,7 +188,9 @@
             const todayStr = getLocalDateStr(new Date());
             const dateStr = getLocalDateStr(selectedDate);
             if (dateStr !== todayStr) {
-              setPendingHistory(history[dateStr] ? JSON.parse(JSON.stringify(history[dateStr])) : []);
+              // history是数组，需要过滤出指定日期的记录
+              const dayHistory = Array.isArray(history) ? history.filter(item => item.date === dateStr) : [];
+              setPendingHistory(JSON.parse(JSON.stringify(dayHistory)));
             } else {
               setPendingHistory(null);
             }
@@ -333,35 +335,58 @@
           const toggleTask = async (category, taskId) => {
             if (isUpdating) return;
             const dateStr = getLocalDateStr(selectedDate);
+            const todayStr = getLocalDateStr(new Date());
             const task = tasks.find(t => t.id === taskId);
             if (!task) return;
 
-            // 获取当天历史
-            const dayHistory = Array.isArray(history) ? history.filter(item => item.date === dateStr) : [];
-            const already = dayHistory.some(item => item.task === task.name && item.type === category);
-
             setIsUpdating(true);
 
-            if (already) {
-              // 删除该条记录
-              const itemToDelete = dayHistory.find(item => item.task === task.name && item.type === category);
-              if (itemToDelete) {
-                await supabase.from('history').delete().eq('id', itemToDelete.id);
+            // 如果是补录模式（非今天）
+            if (dateStr !== todayStr && pendingHistory !== null) {
+              // 更新pendingHistory状态
+              const already = pendingHistory.some(item => item.task === task.name && item.type === category);
+              
+              if (already) {
+                // 从pendingHistory中删除
+                setPendingHistory(prev => prev.filter(item => !(item.task === task.name && item.type === category)));
+              } else {
+                // 添加到pendingHistory
+                const newItem = {
+                  date: dateStr,
+                  task: task.name,
+                  type: category,
+                  points: task.points,
+                  user_id: currentUser.id
+                };
+                setPendingHistory(prev => [...prev, newItem]);
               }
             } else {
-              // 插入新记录
-              await supabase.from('history').insert([{
-                date: dateStr,
-                task: task.name,
-                type: category,
-                points: task.points,
-                user_id: currentUser.id
-              }]);
+              // 今天的数据，直接写入数据库
+              const dayHistory = Array.isArray(history) ? history.filter(item => item.date === dateStr) : [];
+              const already = dayHistory.some(item => item.task === task.name && item.type === category);
+
+              if (already) {
+                // 删除该条记录
+                const itemToDelete = dayHistory.find(item => item.task === task.name && item.type === category);
+                if (itemToDelete) {
+                  await supabase.from('history').delete().eq('id', itemToDelete.id);
+                }
+              } else {
+                // 插入新记录
+                await supabase.from('history').insert([{
+                  date: dateStr,
+                  task: task.name,
+                  type: category,
+                  points: task.points,
+                  user_id: currentUser.id
+                }]);
+              }
+
+              // 刷新 history
+              const { data } = await supabase.from('history').select('*').eq('user_id', currentUser.id);
+              setHistory(data || []);
             }
 
-            // 刷新 history
-            const { data } = await supabase.from('history').select('*').eq('user_id', currentUser.id);
-            setHistory(data || []);
             setIsUpdating(false);
           };
           const addTask = async (newTask) => {
@@ -452,7 +477,16 @@
 
           const getCompletionRate = (date = selectedDate) => {
             const dateStr = getLocalDateStr(date);
-            const dayHistory = Array.isArray(history) ? history.filter(item => item.date === dateStr) : [];
+            const todayStr = getLocalDateStr(new Date());
+            
+            // 如果是补录模式，使用pendingHistory的数据
+            let dayHistory;
+            if (dateStr !== todayStr && pendingHistory !== null) {
+              dayHistory = pendingHistory;
+            } else {
+              dayHistory = Array.isArray(history) ? history.filter(item => item.date === dateStr) : [];
+            }
+            
             let totalPossible = 0;
             tasks.forEach(t => { if (t.points > 0) totalPossible += t.points; });
             if (totalPossible === 0) return 0;
@@ -481,8 +515,16 @@
 
           const TaskCard = ({ task, category }) => {
             const dateStr = getLocalDateStr(selectedDate);
-            // dayHistory 只取当天的记录
-            const dayHistory = Array.isArray(history) ? history.filter(item => item.date === dateStr) : [];
+            const todayStr = getLocalDateStr(new Date());
+            
+            // 如果是补录模式，使用pendingHistory的数据
+            let dayHistory;
+            if (dateStr !== todayStr && pendingHistory !== null) {
+              dayHistory = pendingHistory;
+            } else {
+              dayHistory = Array.isArray(history) ? history.filter(item => item.date === dateStr) : [];
+            }
+            
             // 判断是否已完成（勾选）
             const isCompleted = dayHistory.some(item => item.task === task.name && item.type === category);
             const isPenalty = category === 'penalties';
@@ -709,7 +751,16 @@
 
           const earnedTodayOrSelectedDay = (() => {
             const dateStr = getLocalDateStr(selectedDate);
-            const dayHistory = Array.isArray(history) ? history.filter(item => item.date === dateStr) : [];
+            const todayStr = getLocalDateStr(new Date());
+            
+            // 如果是补录模式，使用pendingHistory的数据
+            let dayHistory;
+            if (dateStr !== todayStr && pendingHistory !== null) {
+              dayHistory = pendingHistory;
+            } else {
+              dayHistory = Array.isArray(history) ? history.filter(item => item.date === dateStr) : [];
+            }
+            
             let total = 0;
             if (Array.isArray(dayHistory)) {
               dayHistory.forEach(item => {
@@ -1358,19 +1409,34 @@
                       </div>
                     </div>
                     
+                    {/* 补录历史按钮 - 移动到这里 */}
+                    {pendingHistory !== null && (
+                      <div className="flex justify-center mt-6 mb-6">
+                        <button
+                          onClick={submitPendingHistory}
+                          className="bg-blue-600 text-white px-8 py-3 rounded-lg font-bold text-lg hover:bg-blue-700 shadow-lg transition-all transform hover:scale-105"
+                        >
+                          <i data-lucide="upload" className="w-5 h-5 mr-2 inline"></i>
+                          提交补录 Make-up Submit
+                        </button>
+                      </div>
+                    )}
+                    
                     <div className="bg-white rounded-xl shadow-lg p-6 mt-8">
-                      <h2 className="text-2xl font-bold mb-2 flex items-center justify-between">
-                        <span className="flex items-center text-gray-700">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-2 gap-3">
+                        <h2 className="text-2xl font-bold flex items-center text-gray-700">
                           <i data-lucide="gift" className="w-7 h-7 mr-2.5 text-pink-500"></i>
                           奖励商店 Reward Shop
-                        </span>
+                        </h2>
                         <button
                           onClick={() => setShowAddReward(!showAddReward)}
-                          className="bg-pink-500 text-white px-4 py-2 rounded-lg hover:bg-pink-600 text-sm transition-all"
+                          className="bg-pink-500 text-white px-3 sm:px-4 py-2 rounded-lg hover:bg-pink-600 text-xs sm:text-sm transition-all flex items-center justify-center min-w-0 shrink-0"
                         >
-                          {showAddReward ? '隐藏 Hide' : '添加奖励 Add Reward'}
+                          <i data-lucide="plus" className="w-4 h-4 mr-1 sm:mr-2"></i>
+                          <span className="hidden sm:inline">{showAddReward ? '隐藏 Hide' : '添加奖励 Add Reward'}</span>
+                          <span className="sm:hidden">{showAddReward ? '隐藏' : '添加'}</span>
                         </button>
-                      </h2>
+                      </div>
                       
                       {showAddReward && (
                         <div className="bg-white rounded-xl shadow-lg p-6 mb-8 border border-gray-200">
@@ -1427,17 +1493,7 @@
                     </Fragment>
                   )}
 
-                  {/* 补录历史按钮 */}
-                  {pendingHistory !== null && (
-                    <div className="flex justify-center mt-8 mb-4">
-                      <button
-                        onClick={submitPendingHistory}
-                        className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold text-base hover:bg-blue-700 shadow-md transition"
-                      >
-                        提交补录 Make-up Submit
-                      </button>
-                    </div>
-                  )}
+
 
                   {/* 页脚 */}
                   <footer className="text-center text-xs text-gray-500 py-8 mt-8">
