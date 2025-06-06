@@ -958,6 +958,55 @@
                     Kids' Mission System
                   </h1>
                   <p className="text-center text-gray-500 mb-5 text-sm">每日任务与奖励系统</p>
+                  {currentUser && (
+                    <div className="flex flex-col sm:flex-row items-center justify-center gap-2 mt-2 mb-4">
+                      <span className="text-gray-700 font-medium text-base">欢迎，{currentUser.email}！</span>
+                      <button
+                        onClick={async () => {
+                          await supabase.auth.signOut();
+                          setCurrentUser(null);
+                          setTasks([]);
+                          setRewards([]);
+                          setHistory([]);
+                          localStorage.clear();
+                          window.location.reload();
+                        }}
+                        className="px-4 py-1.5 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition font-medium text-sm sm:ml-3 w-full sm:w-auto"
+                        style={{ minWidth: 90 }}
+                      >
+                        <i data-lucide="log-out" className="inline w-4 h-4 mr-1 align-text-bottom"></i>退出登录
+                      </button>
+                    </div>
+                  )}
+                  {!currentUser && (
+                    <div id="login-section" style={{ margin: '20px 0', textAlign: 'center' }}>
+                      <input
+                        id="login-email"
+                        type="email"
+                        placeholder="请输入邮箱 / Enter your email"
+                        style={{ padding: '8px', borderRadius: '6px', border: '1px solid #ccc', width: '220px', marginRight: '8px' }}
+                      />
+                      <button
+                        id="login-btn"
+                        style={{ padding: '8px 18px', borderRadius: '6px', background: '#2563eb', color: '#fff', border: 'none', cursor: 'pointer' }}
+                        onClick={async () => {
+                          const email = document.getElementById('login-email').value.trim();
+                          if (!email) {
+                            alert('请输入邮箱');
+                            return;
+                          }
+                          const { error } = await supabase.auth.signInWithOtp({ email });
+                          if (error) {
+                            alert('发送失败: ' + error.message);
+                          } else {
+                            alert('登录链接已发送到邮箱，请查收！');
+                          }
+                        }}
+                      >
+                        发送登录链接
+                      </button>
+                    </div>
+                  )}
                   <div className="mb-4 flex justify-center items-center gap-2">
                     <span className="font-medium text-gray-700">小朋友姓名 / Name:</span>
                     <input
@@ -1002,7 +1051,12 @@
                       今日任务 Today's Tasks
                     </button>
                     <button
-                      onClick={() => setViewMode('history')}
+                      onClick={() => {
+                        setViewMode('history');
+                        setTimeout(() => {
+                          document.getElementById('history-view')?.scrollIntoView({ behavior: 'smooth' });
+                        }, 100);
+                      }}
                       className={`px-3 py-2 sm:px-4 sm:py-2.5 rounded-lg font-medium text-sm sm:text-base flex items-center transition-all
                         ${ viewMode === 'history' ? 'bg-purple-600 text-white shadow-md' : 'bg-gray-200 text-gray-700 hover:bg-gray-300' }`}
                     >
@@ -1043,57 +1097,11 @@
                   </div>
                 </header>
 
-                {!currentUser && (
-                  <div id="login-section" style={{ margin: '20px 0', textAlign: 'center' }}>
-                    <input
-                      id="login-email"
-                      type="email"
-                      placeholder="请输入邮箱 / Enter your email"
-                      style={{ padding: '8px', borderRadius: '6px', border: '1px solid #ccc', width: '220px', marginRight: '8px' }}
-                    />
-                    <button
-                      id="login-btn"
-                      style={{ padding: '8px 18px', borderRadius: '6px', background: '#2563eb', color: '#fff', border: 'none', cursor: 'pointer' }}
-                      onClick={async () => {
-                        const email = document.getElementById('login-email').value.trim();
-                        if (!email) {
-                          alert('请输入邮箱');
-                          return;
-                        }
-                        const { error } = await supabase.auth.signInWithOtp({ email });
-                        if (error) {
-                          alert('发送失败: ' + error.message);
-                        } else {
-                          alert('登录链接已发送到邮箱，请查收！');
-                        }
-                      }}
-                    >
-                      发送登录链接
-                    </button>
+                {viewMode === 'history' && (
+                  <div id="history-view">
+                    <HistoryView />
                   </div>
                 )}
-                {currentUser && (
-                  <div className="flex flex-col sm:flex-row items-center justify-center gap-2 mt-2 mb-4">
-                    <span className="text-gray-700 font-medium text-base">欢迎，{currentUser.email}！</span>
-                    <button
-                      onClick={async () => {
-                        await supabase.auth.signOut();
-                        setCurrentUser(null);
-                        setTasks([]);
-                        setRewards([]);
-                        setHistory([]);
-                        localStorage.clear();
-                        window.location.reload();
-                      }}
-                      className="px-4 py-1.5 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition font-medium text-sm sm:ml-3 w-full sm:w-auto"
-                      style={{ minWidth: 90 }}
-                    >
-                      <i data-lucide="log-out" className="inline w-4 h-4 mr-1 align-text-bottom"></i>退出登录
-                    </button>
-                  </div>
-                )}
-
-                {viewMode === 'history' && <HistoryView />}
 
                 {viewMode === 'today' && (
                   <Fragment> {/* Use Fragment if no parent div is needed */}
