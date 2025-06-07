@@ -159,6 +159,7 @@
             { name: '写日记', nameEn: 'Write Diary', points: 10, icon: '📝', type: 'daily' },
             { name: '数学练习', nameEn: 'Math Practice', points: 15, icon: '➗', type: 'daily' },
             { name: 'Read Theory', nameEn: 'Read Theory', points: 15, icon: '📖', type: 'daily' },
+            { name: '运动', nameEn: 'Exercise', points: 15, icon: '🏃', type: 'daily' },
 
             // 行为习惯 Good Habits
             { name: '洗澡刷牙', nameEn: 'Shower & Brush Teeth', points: 5, icon: '🛁', type: 'behavior' },
@@ -187,9 +188,10 @@
 
           // 先暂时简化：都使用user_id查询以保持兼容性
 
-          // 孩子管理函数
+          // 简化的孩子管理函数
           const loadChildren = async (user) => {
             try {
+              console.log('加载孩子列表...');
               const { data: childrenData, error } = await supabase
                 .from('children')
                 .select('*')
@@ -197,41 +199,26 @@
                 .order('created_at', { ascending: true });
               
               if (error) {
-                console.error('children表可能不存在，创建默认孩子:', error);
-                // 如果children表不存在，创建一个默认孩子
-                const defaultChild = {
-                  id: 'default',
-                  name: '我的宝贝',
-                  avatar: '😊',
-                  birth_year: new Date().getFullYear() - 5,
-                  parent_id: user.id
-                };
-                setChildren([defaultChild]);
-                setCurrentChild(defaultChild);
+                console.error('加载孩子失败:', error);
+                setChildren([]);
+                setShowChildrenManager(true);
                 return;
               }
               
+              console.log('找到孩子:', childrenData?.length || 0, '个');
               setChildren(childrenData || []);
               
-              // 如果没有孩子，显示管理界面
-              if (!childrenData || childrenData.length === 0) {
-                setShowChildrenManager(true);
-              } else {
-                // 设置第一个孩子为当前孩子
+              if (childrenData && childrenData.length > 0) {
                 setCurrentChild(childrenData[0]);
+                console.log('设置当前孩子:', childrenData[0].name);
+              } else {
+                setShowChildrenManager(true);
               }
+              
             } catch (error) {
-              console.error('加载孩子列表出错，使用默认模式:', error);
-              // 创建一个默认孩子以保持兼容性
-              const defaultChild = {
-                id: 'default',
-                name: '我的宝贝',
-                avatar: '😊',
-                birth_year: new Date().getFullYear() - 5,
-                parent_id: user.id
-              };
-              setChildren([defaultChild]);
-              setCurrentChild(defaultChild);
+              console.error('加载孩子时出错:', error);
+              setChildren([]);
+              setShowChildrenManager(true);
             }
           };
 
@@ -247,6 +234,7 @@
             }
 
             try {
+              // 检查children表是否存在
               const { data, error } = await supabase
                 .from('children')
                 .insert([{
@@ -258,8 +246,43 @@
                 .select();
 
               if (error) {
-                alert('添加孩子失败: ' + error.message);
-                return;
+                console.error('数据库错误详情:', error);
+                
+                // 如果是表不存在的错误，创建本地孩子
+                if (error.code === 'PGRST116' || error.message?.includes('does not exist') || !error.message) {
+                  console.log('children表不存在，创建本地孩子档案');
+                  
+                  // 创建一个本地ID（使用时间戳）
+                  const localChild = {
+                    id: 'local_' + Date.now(),
+                    parent_id: currentUser.id,
+                    name: newChild.name.trim(),
+                    birth_year: newChild.birth_year,
+                    avatar: newChild.avatar,
+                    created_at: new Date().toISOString(),
+                    is_local: true // 标记为本地创建
+                  };
+
+                  const updatedChildren = [...children, localChild];
+                  setChildren(updatedChildren);
+                  
+                  // 如果是第一个孩子，设为当前孩子
+                  if (updatedChildren.length === 1) {
+                    setCurrentChild(localChild);
+                    setShowChildrenManager(false);
+                  }
+                  
+                  setNewChild({ name: '', birth_year: new Date().getFullYear() - 5, avatar: '😊' });
+                  
+                  // 保存到localStorage作为备份
+                  localStorage.setItem('children_backup', JSON.stringify(updatedChildren));
+                  
+                  alert('孩子档案已创建！（注意：当前使用本地存储模式）');
+                  return;
+                } else {
+                  alert('添加孩子失败: ' + (error.message || '未知错误'));
+                  return;
+                }
               }
 
               const updatedChildren = [...children, data[0]];
@@ -272,8 +295,11 @@
               }
               
               setNewChild({ name: '', birth_year: new Date().getFullYear() - 5, avatar: '😊' });
+              alert('孩子档案添加成功！');
+              
             } catch (error) {
-              alert('添加孩子出错: ' + error.message);
+              console.error('添加孩子时发生错误:', error);
+              alert('添加孩子出错: ' + (error.message || '网络连接问题'));
             }
           };
 
@@ -283,14 +309,23 @@
             }
 
             try {
-              // 删除孩子相关的所有数据
-              await supabase.from('history').delete().eq('child_id', childId);
-              await supabase.from('tasks').delete().eq('child_id', childId);
-              await supabase.from('rewards').delete().eq('child_id', childId);
-              await supabase.from('children').delete().eq('id', childId);
+              // 检查是否是本地孩子
+              const childToDelete = children.find(child => child.id === childId);
+              const isLocalChild = childToDelete?.is_local || (typeof childId === 'string' && childId.startsWith('local_'));
+              
+              if (!isLocalChild) {
+                // 删除数据库中的孩子相关数据
+                await supabase.from('history').delete().eq('child_id', childId);
+                await supabase.from('tasks').delete().eq('child_id', childId);
+                await supabase.from('rewards').delete().eq('child_id', childId);
+                await supabase.from('children').delete().eq('id', childId);
+              }
 
               const updatedChildren = children.filter(child => child.id !== childId);
               setChildren(updatedChildren);
+              
+              // 更新本地备份
+              localStorage.setItem('children_backup', JSON.stringify(updatedChildren));
               
               // 如果删除的是当前孩子，选择第一个
               if (currentChild?.id === childId) {
@@ -301,8 +336,12 @@
                   setShowChildrenManager(true);
                 }
               }
+              
+              alert(isLocalChild ? '本地孩子档案已删除' : '孩子档案已删除');
+              
             } catch (error) {
-              alert('删除失败: ' + error.message);
+              console.error('删除孩子时出错:', error);
+              alert('删除失败: ' + (error.message || '未知错误'));
             }
           };
 
@@ -310,59 +349,197 @@
           const loadUserData = async (user) => {
             if (!user) return;
             
-            // 首先加载孩子列表
-            await loadChildren(user);
+            console.log('开始加载用户数据:', user.email);
+            
+            console.log('🚀 开始加载数据:', user.email);
+            
+            try {
+              // 步骤1: 加载孩子列表
+              console.log('步骤1: 开始加载孩子列表');
+              await loadChildren(user);
+              console.log('步骤1: 孩子列表加载完成');
+              
+              // 步骤2: 任务和奖励数据现在由loadChildData处理，跳过
+              console.log('步骤2: 任务和奖励数据将在选择孩子后加载');
+
+              // 步骤3: 历史记录现在由loadChildData处理，跳过
+              console.log('步骤3: 历史记录将在选择孩子后加载');
+              
+              console.log('🎉 所有数据加载流程完成');
+              
+            } catch (error) {
+              console.error('🚨 数据加载失败:', error);
+              
+              // 即使失败也要设置基本状态，避免卡住
+              console.log('设置默认状态以避免卡住');
+              setTasks(DEFAULT_TASKS.map((t, index) => ({ ...t, id: index + 1 }))); // 使用本地预设
+              setRewards(DEFAULT_REWARDS.map((r, index) => ({ ...r, id: index + 1 }))); // 使用本地预设
+              setHistory([]);
+              setChildren([]);
+              
+              // 显示错误信息但允许继续使用
+              if (error.message.includes('超时')) {
+                alert('数据加载较慢，已切换到离线模式。你仍可以正常使用系统！');
+              } else {
+                alert('网络连接问题，已切换到离线模式: ' + error.message);
+              }
+            }
           };
 
-          // 为当前孩子加载数据（暂时简化为user_id查询）
+          // 为当前孩子加载所有数据（任务、奖励、历史记录）
           const loadChildData = async (child) => {
             if (!child || !currentUser) return;
             
             try {
-              // 加载任务
-              const { data: tasksData } = await supabase.from('tasks').select('*').eq('user_id', currentUser.id);
-              if (!tasksData || tasksData.length === 0) {
-                // 插入预设任务
-                await supabase.from('tasks').insert(
+              console.log('加载孩子数据:', child.name, child.id);
+              
+              // 加载该孩子的任务
+              const { data: tasksData, error: tasksError } = await supabase
+                .from('tasks')
+                .select('*')
+                .eq('child_id', child.id);
+              
+              if (tasksError) {
+                console.error('加载任务失败:', tasksError);
+                // 如果没有child_id字段，使用兼容模式
+                if (tasksError.message?.includes('child_id')) {
+                  console.log('tasks表child_id字段不存在，使用user_id查询兼容模式');
+                  const { data: fallbackData } = await supabase
+                    .from('tasks')
+                    .select('*')
+                    .eq('user_id', currentUser.id);
+                  setTasks(fallbackData || []);
+                } else {
+                  // 如果该孩子还没有任务，为其创建预设任务
+                  console.log('为新孩子创建预设任务');
+                  const { error: insertError } = await supabase.from('tasks').insert(
+                    DEFAULT_TASKS.map(t => ({
+                      ...t,
+                      user_id: currentUser.id,
+                      child_id: child.id
+                    }))
+                  );
+                  if (!insertError) {
+                    const { data: newTasks } = await supabase.from('tasks').select('*').eq('child_id', child.id);
+                    setTasks(newTasks || []);
+                  } else {
+                    setTasks([]);
+                  }
+                }
+              } else if (!tasksData || tasksData.length === 0) {
+                // 如果该孩子还没有任务，为其创建预设任务
+                console.log('为新孩子创建预设任务');
+                const { error: insertError } = await supabase.from('tasks').insert(
                   DEFAULT_TASKS.map(t => ({
                     ...t,
-                    user_id: currentUser.id
+                    user_id: currentUser.id,
+                    child_id: child.id
                   }))
                 );
-                const { data: newTasks } = await supabase.from('tasks').select('*').eq('user_id', currentUser.id);
-                setTasks(newTasks || []);
+                if (!insertError) {
+                  const { data: newTasks } = await supabase.from('tasks').select('*').eq('child_id', child.id);
+                  setTasks(newTasks || []);
+                } else {
+                  setTasks([]);
+                }
               } else {
+                console.log('成功加载任务:', tasksData?.length || 0, '个');
                 setTasks(tasksData || []);
               }
 
-              // 加载奖励
-              const { data: rewardsData } = await supabase.from('rewards').select('*').eq('user_id', currentUser.id);
-              if (!rewardsData || rewardsData.length === 0) {
-                // 插入预设奖励
-                await supabase.from('rewards').insert(
+              // 加载该孩子的奖励
+              const { data: rewardsData, error: rewardsError } = await supabase
+                .from('rewards')
+                .select('*')
+                .eq('child_id', child.id);
+              
+              if (rewardsError) {
+                console.error('加载奖励失败:', rewardsError);
+                // 如果没有child_id字段，使用兼容模式
+                if (rewardsError.message?.includes('child_id')) {
+                  console.log('rewards表child_id字段不存在，使用user_id查询兼容模式');
+                  const { data: fallbackData } = await supabase
+                    .from('rewards')
+                    .select('*')
+                    .eq('user_id', currentUser.id);
+                  setRewards(fallbackData || []);
+                } else {
+                  // 如果该孩子还没有奖励，为其创建预设奖励
+                  console.log('为新孩子创建预设奖励');
+                  const { error: insertError } = await supabase.from('rewards').insert(
+                    DEFAULT_REWARDS.map(r => ({
+                      ...r,
+                      user_id: currentUser.id,
+                      child_id: child.id
+                    }))
+                  );
+                  if (!insertError) {
+                    const { data: newRewards } = await supabase.from('rewards').select('*').eq('child_id', child.id);
+                    setRewards(newRewards || []);
+                  } else {
+                    setRewards([]);
+                  }
+                }
+              } else if (!rewardsData || rewardsData.length === 0) {
+                // 如果该孩子还没有奖励，为其创建预设奖励
+                console.log('为新孩子创建预设奖励');
+                const { error: insertError } = await supabase.from('rewards').insert(
                   DEFAULT_REWARDS.map(r => ({
                     ...r,
-                    user_id: currentUser.id
+                    user_id: currentUser.id,
+                    child_id: child.id
                   }))
                 );
-                const { data: newRewards } = await supabase.from('rewards').select('*').eq('user_id', currentUser.id);
-                setRewards(newRewards || []);
+                if (!insertError) {
+                  const { data: newRewards } = await supabase.from('rewards').select('*').eq('child_id', child.id);
+                  setRewards(newRewards || []);
+                } else {
+                  setRewards([]);
+                }
               } else {
+                console.log('成功加载奖励:', rewardsData?.length || 0, '个');
                 setRewards(rewardsData || []);
               }
-
-              // 加载历史记录
-              const { data: historyData } = await supabase.from('history').select('*').eq('user_id', currentUser.id);
-              setHistory(historyData || []);
+              
+              // 加载该孩子的历史记录
+              const { data: historyData, error: historyError } = await supabase
+                .from('history')
+                .select('*')
+                .eq('child_id', child.id);
+              
+              if (historyError) {
+                console.error('加载历史记录失败:', historyError);
+                // 如果是因为没有child_id字段，尝试按user_id加载（兼容旧数据）
+                if (historyError.message?.includes('child_id')) {
+                  console.log('history表child_id字段不存在，使用user_id查询兼容模式');
+                  const { data: fallbackData } = await supabase
+                    .from('history')
+                    .select('*')
+                    .eq('user_id', currentUser.id);
+                  setHistory(fallbackData || []);
+                } else {
+                  setHistory([]);
+                }
+              } else {
+                console.log('成功加载历史记录:', historyData?.length || 0, '条');
+                setHistory(historyData || []);
+              }
+              
             } catch (error) {
               console.error('加载孩子数据失败:', error);
+              setHistory([]);
+              setTasks([]);
+              setRewards([]);
             }
           };
 
           // 监听认证状态变化
           useEffect(() => {
+            console.log('设置认证监听器');
+            
             // 检查当前用户状态
             supabase.auth.getSession().then(({ data: { session } }) => {
+              console.log('检查当前会话:', session?.user?.email);
               if (session?.user) {
                 setCurrentUser(session.user);
                 loadUserData(session.user);
@@ -370,26 +547,44 @@
             });
 
             const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+              console.log('认证状态变化:', event, session?.user?.email);
+              
               if (event === 'SIGNED_IN' && session?.user) {
+                console.log('用户登录成功，开始加载数据');
                 setCurrentUser(session.user);
-                // 加载用户数据
-                await loadUserData(session.user);
-                // 执行待执行的动作并关闭登录模态框
-                executePendingAction();
+                
+                try {
+                  // 加载用户数据
+                  await loadUserData(session.user);
+                  console.log('用户数据加载完成');
+                  
+                  // 执行待执行的动作并关闭登录模态框
+                  executePendingAction();
+                } catch (error) {
+                  console.error('加载用户数据时出错:', error);
+                  // 即使出错也要关闭登录框
+                  setShowLoginModal(false);
+                  setIsAuthLoading(false);
+                }
               } else if (event === 'SIGNED_OUT') {
+                console.log('用户退出登录');
                 setCurrentUser(null);
+                setChildren([]);
+                setCurrentChild(null);
                 setTasks([]);
                 setRewards([]);
                 setHistory([]);
+                setTotalPoints(0);
               }
             });
 
             return () => subscription.unsubscribe();
           }, []);
 
-          // 当前孩子变化时加载对应数据
+          // 当前孩子变化时，加载该孩子的历史数据
           useEffect(() => {
             if (currentChild && currentUser) {
+              console.log('孩子切换，重新加载数据:', currentChild.name);
               loadChildData(currentChild);
             }
           }, [currentChild, currentUser]);
@@ -432,40 +627,42 @@
 
 
 
-          useEffect(() => {
-            // 检查用户是否已登录
-            supabase.auth.getUser().then(({ data: { user } }) => {
-              setCurrentUser(user || null);
-            });
-          }, []);
+          // 这些认证监听已经在前面处理了，避免重复
+          // useEffect(() => {
+          //   // 检查用户是否已登录
+          //   supabase.auth.getUser().then(({ data: { user } }) => {
+          //     setCurrentUser(user || null);
+          //   });
+          // }, []);
 
-          useEffect(() => {
-            // 监听登录状态变化
-            const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-              setCurrentUser(session?.user || null);
-            });
-            return () => {
-              subscription.unsubscribe();
-            };
-          }, []);
+          // useEffect(() => {
+          //   // 监听登录状态变化
+          //   const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+          //     setCurrentUser(session?.user || null);
+          //   });
+          //   return () => {
+          //     subscription.unsubscribe();
+          //   };
+          // }, []);
 
-          useEffect(() => {
-            if (currentUser) {
-              supabase
-                .from('tasks')
-                .select('*')
-                .eq('user_id', currentUser.id)
-                .then(({ data, error }) => {
-                  if (error) {
-                    alert('加载任务失败: ' + error.message);
-                  } else {
-                    setTasks(data || []);
-                  }
-                });
-            } else {
-              setTasks([]);
-            }
-          }, [currentUser]);
+          // 这个useEffect已经不需要了，因为数据加载现在在loadUserData中处理
+          // useEffect(() => {
+          //   if (currentUser) {
+          //     supabase
+          //       .from('tasks')
+          //       .select('*')
+          //       .eq('user_id', currentUser.id)
+          //       .then(({ data, error }) => {
+          //         if (error) {
+          //           alert('加载任务失败: ' + error.message);
+          //         } else {
+          //           setTasks(data || []);
+          //         }
+          //       });
+          //   } else {
+          //     setTasks([]);
+          //   }
+          // }, [currentUser]);
 
 
           // 自动为新用户插入预设任务和奖励
@@ -529,24 +726,28 @@
                   task: task.name,
                   type: category,
                   points: task.points,
-                  user_id: currentUser.id
+                  user_id: currentUser.id,
+                  child_id: currentChild?.id
                 }]);
               }
 
-              // 刷新 history
-              const { data } = await supabase.from('history').select('*').eq('user_id', currentUser.id);
-              setHistory(data || []);
+              // 刷新当前孩子的 history
+              if (currentChild?.id) {
+                const { data } = await supabase.from('history').select('*').eq('child_id', currentChild.id);
+                setHistory(data || []);
+              }
             }
 
             setIsUpdating(false);
           };
           const addTask = async (newTask) => {
-            if (!currentUser) {
-              alert('请先登录');
+            if (!currentUser || !currentChild) {
+              alert('请先登录并选择孩子');
               return;
             }
             const { error } = await supabase.from('tasks').insert([{
               user_id: currentUser.id,
+              child_id: currentChild.id,
               name: newTask.name,
               nameEn: newTask.nameEn,
               points: newTask.points,
@@ -557,18 +758,18 @@
             if (error) {
               alert('添加任务失败: ' + error.message);
             } else {
-              // 重新加载任务
-              const { data } = await supabase.from('tasks').select('*').eq('user_id', currentUser.id);
+              // 重新加载当前孩子的任务
+              const { data } = await supabase.from('tasks').select('*').eq('child_id', currentChild.id);
               setTasks(data || []);
               alert('添加成功！');
             }
           };
           
           const deleteTask = async (taskId) => {
-            if (!currentUser) return;
-            await supabase.from('tasks').delete().eq('id', taskId).eq('user_id', currentUser.id);
-            // 重新加载任务
-            const { data } = await supabase.from('tasks').select('*').eq('user_id', currentUser.id);
+            if (!currentUser || !currentChild) return;
+            await supabase.from('tasks').delete().eq('id', taskId).eq('child_id', currentChild.id);
+            // 重新加载当前孩子的任务
+            const { data } = await supabase.from('tasks').select('*').eq('child_id', currentChild.id);
             setTasks(data || []);
           };
           
@@ -608,17 +809,20 @@
                     task: reward.name + '兑换',
                     type: 'redeem',
                     points: -reward.cost,
-                    user_id: currentUser.id
+                    user_id: currentUser.id,
+                    child_id: currentChild?.id
                   }
                 ]);
               if (!error) {
                 alert(`太棒了! 你兑换了 ${reward.name} / Great! You redeemed ${reward.nameEn}! 🎉`);
-                // 用 Supabase 刷新 history
-                const { data } = await supabase
-                  .from('history')
-                  .select('*')
-                  .eq('user_id', currentUser.id);
-                setHistory(data || []);
+                // 用 Supabase 刷新当前孩子的 history
+                if (currentChild?.id) {
+                  const { data } = await supabase
+                    .from('history')
+                    .select('*')
+                    .eq('child_id', currentChild.id);
+                  setHistory(data || []);
+                }
               }
             } else {
               alert('积分不足哦! / Not enough points! 🙁');
@@ -930,15 +1134,24 @@
             const { error } = await supabase
               .from('history')
               .insert([
-                { date, task, type, points, user_id: currentUser.id }
+                { 
+                  date, 
+                  task, 
+                  type, 
+                  points, 
+                  user_id: currentUser.id,
+                  child_id: currentChild?.id
+                }
               ]);
             if (!error) {
-              // 用 Supabase 刷新 history
-              const { data } = await supabase
-                .from('history')
-                .select('*')
-                .eq('user_id', currentUser.id);
-              setHistory(data || []);
+              // 用 Supabase 刷新当前孩子的 history
+              if (currentChild?.id) {
+                const { data } = await supabase
+                  .from('history')
+                  .select('*')
+                  .eq('child_id', currentChild.id);
+                setHistory(data || []);
+              }
             } else {
               console.error('addHistory error:', error);
             }
@@ -1030,28 +1243,31 @@
           const submitPendingHistory = async () => {
             if (!currentUser) return;
             const dateStr = getLocalDateStr(selectedDate);
-            // 先清空该日历史
-            await supabase
-              .from('history')
-              .delete()
-              .eq('user_id', currentUser.id)
-              .eq('date', dateStr);
-            // 再批量写入
-            if (pendingHistory && pendingHistory.length > 0) {
-              await supabase.from('history').insert(
-                pendingHistory.map(item => ({
-                  ...item,
-                  date: dateStr,
-                  user_id: currentUser.id
-                }))
-              );
+            // 先清空该孩子该日历史
+            if (currentChild?.id) {
+              await supabase
+                .from('history')
+                .delete()
+                .eq('child_id', currentChild.id)
+                .eq('date', dateStr);
+              // 再批量写入
+              if (pendingHistory && pendingHistory.length > 0) {
+                await supabase.from('history').insert(
+                  pendingHistory.map(item => ({
+                    ...item,
+                    date: dateStr,
+                    user_id: currentUser.id,
+                    child_id: currentChild.id
+                  }))
+                );
+              }
+              // 刷新当前孩子的 history
+              const { data } = await supabase
+                .from('history')
+                .select('*')
+                .eq('child_id', currentChild.id);
+              setHistory(data || []);
             }
-            // 刷新 history
-            const { data } = await supabase
-              .from('history')
-              .select('*')
-              .eq('user_id', currentUser.id);
-            setHistory(data || []);
             setPendingHistory(null);
             setSelectedDate(new Date());
             alert('补录成功！Make-up records submitted!');
@@ -1082,13 +1298,14 @@
 
           // 添加奖励函数
           const addReward = async (newReward) => {
-            if (!currentUser) {
-              alert('请先登录');
+            if (!currentUser || !currentChild) {
+              alert('请先登录并选择孩子');
               return;
             }
             const { error } = await supabase.from('rewards').insert([
               {
                 user_id: currentUser.id,
+                child_id: currentChild.id,
                 name: newReward.name,
                 nameEn: newReward.nameEn,
                 cost: newReward.cost,
@@ -1098,8 +1315,8 @@
             if (error) {
               alert('添加奖励失败: ' + error.message);
             } else {
-              // 重新加载奖励
-              const { data } = await supabase.from('rewards').select('*').eq('user_id', currentUser.id);
+              // 重新加载当前孩子的奖励
+              const { data } = await supabase.from('rewards').select('*').eq('child_id', currentChild.id);
               setRewards(data || []);
               alert('添加成功！');
             }
@@ -1222,10 +1439,10 @@
           };
           // 删除奖励
           const deleteReward = async (rewardId) => {
-            if (!currentUser) return;
-            await supabase.from('rewards').delete().eq('id', rewardId).eq('user_id', currentUser.id);
-            // 重新加载奖励
-            const { data } = await supabase.from('rewards').select('*').eq('user_id', currentUser.id);
+            if (!currentUser || !currentChild) return;
+            await supabase.from('rewards').delete().eq('id', rewardId).eq('child_id', currentChild.id);
+            // 重新加载当前孩子的奖励
+            const { data } = await supabase.from('rewards').select('*').eq('child_id', currentChild.id);
             setRewards(data || []);
           };
 
@@ -1260,11 +1477,20 @@
 
           // 登录成功后执行待执行的动作
           const executePendingAction = () => {
-            if (pendingAction) {
-              handleFeatureClick(pendingAction);
-              setPendingAction(null);
+            console.log('执行待执行的动作');
+            try {
+              if (pendingAction) {
+                handleFeatureClick(pendingAction);
+                setPendingAction(null);
+              }
+            } catch (error) {
+              console.error('执行待执行动作时出错:', error);
             }
+            
+            // 确保关闭登录模态框和停止加载状态
             setShowLoginModal(false);
+            setIsAuthLoading(false);
+            console.log('登录流程完成');
           };
 
           return (
@@ -1281,21 +1507,49 @@
                   
                   {/* 用户信息固定在右上角 */}
                   {currentUser && (
-                    <div className="absolute top-4 right-4 sm:right-6 flex items-center space-x-3">
+                    <div className="absolute top-4 right-4 sm:right-6 flex items-center space-x-3 z-50">
                       <span className="text-sm text-gray-700 hidden sm:block font-medium">
                         欢迎，{currentUser.email}
                       </span>
                       <button
-                        onClick={async () => {
-                          await supabase.auth.signOut();
-                          setCurrentUser(null);
-                          setTasks([]);
-                          setRewards([]);
-                          setHistory([]);
-                          localStorage.clear();
-                          window.location.reload();
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          console.log('退出按钮被点击');
+                          
+                          // 使用简单的方式退出
+                          const confirmLogout = () => {
+                            console.log('确认退出');
+                            // 清理所有状态
+                            setCurrentUser(null);
+                            setChildren([]);
+                            setCurrentChild(null);
+                            setTasks([]);
+                            setRewards([]);
+                            setHistory([]);
+                            setTotalPoints(0);
+                            localStorage.clear();
+                            
+                            // 执行Supabase退出
+                            supabase.auth.signOut().then(() => {
+                              console.log('Supabase退出成功');
+                              setTimeout(() => {
+                                window.location.reload();
+                              }, 100);
+                            }).catch((error) => {
+                              console.error('Supabase退出失败:', error);
+                              // 即使Supabase退出失败，也强制刷新页面
+                              setTimeout(() => {
+                                window.location.reload();
+                              }, 100);
+                            });
+                          };
+                          
+                          // 立即执行退出
+                          confirmLogout();
                         }}
-                        className="bg-white/90 hover:bg-white text-gray-700 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center space-x-1 shadow-sm"
+                        className="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center space-x-1 shadow-lg cursor-pointer"
+                        style={{ position: 'relative', zIndex: 9999, pointerEvents: 'auto' }}
                       >
                         <i data-lucide="log-out" className="w-4 h-4"></i>
                         <span className="hidden sm:inline">退出</span>
@@ -1343,19 +1597,32 @@
                       <div className="flex items-center gap-3">
                         <span className="font-medium text-gray-700">当前查看:</span>
                         <select
-                          value={currentChild?.id || ''}
+                          value={currentChild?.id ? String(currentChild.id) : ''}
                           onChange={(e) => {
-                            const selectedChild = children.find(child => child.id === e.target.value);
-                            setCurrentChild(selectedChild);
+                            console.log('选择孩子:', e.target.value);
+                            const selectedValue = e.target.value;
+                            const selectedChild = children.find(child => 
+                              String(child.id) === selectedValue
+                            );
+                            console.log('找到的孩子:', selectedChild);
+                            if (selectedChild) {
+                              setCurrentChild(selectedChild);
+                              console.log('切换到孩子:', selectedChild.name);
+                            }
                           }}
                           className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
                         >
                           {children.map(child => (
-                            <option key={child.id} value={child.id}>
+                            <option key={child.id} value={String(child.id)}>
                               {child.avatar} {child.name} ({new Date().getFullYear() - child.birth_year}岁)
                             </option>
                           ))}
                         </select>
+                        {currentChild && (
+                          <div className="ml-3 px-3 py-1 bg-blue-100 text-blue-800 rounded-lg text-sm font-medium">
+                            当前: {currentChild.avatar} {currentChild.name}
+                          </div>
+                        )}
                       </div>
                       
                       <div className="flex items-center gap-2">
@@ -1522,7 +1789,7 @@
                       </div>
                       
                       <div className="flex items-center gap-3">
-                        <span className="font-medium text-gray-700 text-sm sm:text-base">查看日期:</span>
+                        <span className="font-medium text-gray-700 text-sm sm:text-base">补录日期:</span>
                         <select
                           value={getLocalDateStr(selectedDate)}
                           onChange={e => {
@@ -1778,18 +2045,20 @@
                               onClick={async () => {
                                 if (window.confirm('确定要清空当天所有得分/扣分吗？\nAre you sure to clear all today\'s records?')) {
                                   const dateStr = getLocalDateStr(selectedDate);
-                                  // 用 Supabase 删除该用户该天的记录
-                                  await supabase
-                                    .from('history')
-                                    .delete()
-                                    .eq('user_id', currentUser.id)
-                                    .eq('date', dateStr);
-                                  // 刷新 history
-                                  const { data } = await supabase
-                                    .from('history')
-                                    .select('*')
-                                    .eq('user_id', currentUser.id);
-                                  setHistory(data || []);
+                                  // 用 Supabase 删除该孩子该天的记录
+                                  if (currentChild?.id) {
+                                    await supabase
+                                      .from('history')
+                                      .delete()
+                                      .eq('child_id', currentChild.id)
+                                      .eq('date', dateStr);
+                                    // 刷新当前孩子的 history
+                                    const { data } = await supabase
+                                      .from('history')
+                                      .select('*')
+                                      .eq('child_id', currentChild.id);
+                                    setHistory(data || []);
+                                  }
                                 }
                               }}
                               className="ml-3 px-3 py-1.5 rounded-lg bg-red-500 text-white text-xs sm:text-sm font-medium hover:bg-red-600 transition-all flex items-center"
@@ -1800,9 +2069,23 @@
                             </button>
                         </h2>
                         <div className="space-y-3.5">
-                          {tasks.filter(task => task.type === 'daily').map(task => (
-                            <TaskCard key={task.id} task={task} category="daily" />
-                          ))}
+                          {tasks
+                            .filter(task => task.type === 'daily')
+                            .sort((a, b) => {
+                              // 预设任务 vs 自定义任务的判断
+                              const aIsPreset = DEFAULT_TASKS.some(defaultTask => defaultTask.name === a.name);
+                              const bIsPreset = DEFAULT_TASKS.some(defaultTask => defaultTask.name === b.name);
+                              
+                              // 预设任务排在前面
+                              if (aIsPreset && !bIsPreset) return -1;
+                              if (!aIsPreset && bIsPreset) return 1;
+                              
+                              // 同类型内按名称排序
+                              return a.name.localeCompare(b.name);
+                            })
+                            .map(task => (
+                              <TaskCard key={task.id} task={task} category="daily" />
+                            ))}
                         </div>
                       </div>
 
@@ -1812,9 +2095,23 @@
                             行为习惯 Good Habits
                         </h2>
                         <div className="space-y-3.5">
-                          {tasks.filter(task => task.type === 'behavior').map(task => (
-                            <TaskCard key={task.id} task={task} category="behavior" />
-                          ))}
+                          {tasks
+                            .filter(task => task.type === 'behavior')
+                            .sort((a, b) => {
+                              // 预设任务 vs 自定义任务的判断
+                              const aIsPreset = DEFAULT_TASKS.some(defaultTask => defaultTask.name === a.name);
+                              const bIsPreset = DEFAULT_TASKS.some(defaultTask => defaultTask.name === b.name);
+                              
+                              // 预设任务排在前面
+                              if (aIsPreset && !bIsPreset) return -1;
+                              if (!aIsPreset && bIsPreset) return 1;
+                              
+                              // 同类型内按名称排序
+                              return a.name.localeCompare(b.name);
+                            })
+                            .map(task => (
+                              <TaskCard key={task.id} task={task} category="behavior" />
+                            ))}
                         </div>
                       </div>
                     </div>
@@ -1825,9 +2122,23 @@
                         扣分项目 Penalty Items
                       </h2>
                       <div className="grid md:grid-cols-2 gap-3.5">
-                        {tasks.filter(task => task.type === 'penalties').map(task => (
-                          <TaskCard key={task.id} task={task} category="penalties" />
-                        ))}
+                        {tasks
+                          .filter(task => task.type === 'penalties')
+                          .sort((a, b) => {
+                            // 预设任务 vs 自定义任务的判断
+                            const aIsPreset = DEFAULT_TASKS.some(defaultTask => defaultTask.name === a.name);
+                            const bIsPreset = DEFAULT_TASKS.some(defaultTask => defaultTask.name === b.name);
+                            
+                            // 预设任务排在前面
+                            if (aIsPreset && !bIsPreset) return -1;
+                            if (!aIsPreset && bIsPreset) return 1;
+                            
+                            // 同类型内按名称排序
+                            return a.name.localeCompare(b.name);
+                          })
+                          .map(task => (
+                            <TaskCard key={task.id} task={task} category="penalties" />
+                          ))}
                       </div>
                     </div>
                     
