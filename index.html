@@ -138,6 +138,9 @@
 
           const [currentUser, setCurrentUser] = useState(null);
           const [loginEmail, setLoginEmail] = useState('');
+          const [loginPassword, setLoginPassword] = useState('');
+          const [authMode, setAuthMode] = useState('login'); // 'login', 'register', 'forgot'
+          const [isAuthLoading, setIsAuthLoading] = useState(false);
 
           // 预设任务和奖励
           const DEFAULT_TASKS = [
@@ -803,6 +806,80 @@
             return `${y}-${m}-${d}`;
           }
 
+          // 认证函数
+          const handleAuth = async () => {
+            if (!loginEmail.trim()) {
+              alert('请输入邮箱 / Please enter email');
+              return;
+            }
+            
+            setIsAuthLoading(true);
+            
+            try {
+              if (authMode === 'register') {
+                if (!loginPassword.trim()) {
+                  alert('请输入密码 / Please enter password');
+                  setIsAuthLoading(false);
+                  return;
+                }
+                if (loginPassword.length < 6) {
+                  alert('密码至少6位 / Password must be at least 6 characters');
+                  setIsAuthLoading(false);
+                  return;
+                }
+                
+                const { data, error } = await supabase.auth.signUp({
+                  email: loginEmail.trim(),
+                  password: loginPassword
+                });
+                
+                if (error) {
+                  alert('注册失败 / Registration failed: ' + error.message);
+                } else {
+                  alert('注册成功！您现在可以直接登录使用 / Registration successful! You can now login directly');
+                  setLoginEmail('');
+                  setLoginPassword('');
+                  setAuthMode('login');
+                }
+              } else if (authMode === 'login') {
+                if (!loginPassword.trim()) {
+                  alert('请输入密码 / Please enter password');
+                  setIsAuthLoading(false);
+                  return;
+                }
+                
+                const { data, error } = await supabase.auth.signInWithPassword({
+                  email: loginEmail.trim(),
+                  password: loginPassword
+                });
+                
+                if (error) {
+                  alert('登录失败 / Login failed: ' + error.message);
+                } else {
+                  alert('登录成功！/ Login successful!');
+                  setLoginEmail('');
+                  setLoginPassword('');
+                }
+              } else if (authMode === 'forgot') {
+                const { error } = await supabase.auth.resetPasswordForEmail(loginEmail.trim(), {
+                  redirectTo: window.location.origin
+                });
+                
+                if (error) {
+                  alert('发送重置链接失败 / Failed to send reset link: ' + error.message);
+                } else {
+                  alert('密码重置链接已发送到邮箱！/ Password reset link sent to your email!');
+                  setLoginEmail('');
+                  setAuthMode('login');
+                }
+              }
+            } catch (error) {
+              alert('操作失败 / Operation failed: ' + error.message);
+            }
+            
+            setIsAuthLoading(false);
+          };
+
           // 提交补录
           const submitPendingHistory = async () => {
             if (!currentUser) return;
@@ -1079,65 +1156,100 @@
                       </div>
                     )}
                     {!currentUser && (
-                      <div style={{ 
-                        display: 'flex', 
-                        flexDirection: window.innerWidth < 640 ? 'column' : 'row',
-                        alignItems: 'center', 
-                        justifyContent: 'center', 
-                        gap: '0.5rem' 
-                      }}>
-                        <input
-                          type="email"
-                          placeholder="请输入邮箱 / Enter your email"
-                          value={loginEmail}
-                          onChange={(e) => setLoginEmail(e.target.value)}
-                          style={{
-                            padding: '0.75rem',
-                            border: '1px solid #d1d5db',
-                            borderRadius: '0.5rem',
-                            minWidth: '220px',
-                            outline: 'none'
-                          }}
-                          onFocus={(e) => {
-                            e.target.style.borderColor = '#60a5fa';
-                            e.target.style.boxShadow = '0 0 0 2px rgba(96, 165, 250, 0.2)';
-                          }}
-                          onBlur={(e) => {
-                            e.target.style.borderColor = '#d1d5db';
-                            e.target.style.boxShadow = 'none';
-                          }}
-                        />
-                        <button
-                          onClick={async (e) => {
-                            e.preventDefault();
-                            if (!loginEmail.trim()) {
-                              alert('请输入邮箱');
-                              return;
-                            }
-                            const { error } = await supabase.auth.signInWithOtp({ email: loginEmail.trim() });
-                            if (error) {
-                              alert('发送失败: ' + error.message);
-                            } else {
-                              alert('登录链接已发送到邮箱，请查收！');
-                              setLoginEmail(''); // 清空输入框
-                            }
-                          }}
-                          style={{
-                            padding: '0.5rem 1rem',
-                            backgroundColor: '#2563eb',
-                            color: 'white',
-                            borderRadius: '0.5rem',
-                            border: 'none',
-                            cursor: 'pointer',
-                            fontWeight: '500',
-                            fontSize: '0.875rem',
-                            transition: 'background-color 0.2s'
-                          }}
-                          onMouseOver={(e) => e.target.style.backgroundColor = '#1d4ed8'}
-                          onMouseOut={(e) => e.target.style.backgroundColor = '#2563eb'}
-                        >
-                          发送登录链接
-                        </button>
+                      <div className="bg-white rounded-lg shadow-md p-4 border max-w-md mx-auto">
+                        <div className="mb-3 text-center">
+                          <div className="flex justify-center gap-1">
+                            <button
+                              onClick={() => setAuthMode('login')}
+                              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                                authMode === 'login' 
+                                  ? 'bg-blue-500 text-white' 
+                                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                              }`}
+                            >
+                              登录 Login
+                            </button>
+                            <button
+                              onClick={() => setAuthMode('register')}
+                              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                                authMode === 'register' 
+                                  ? 'bg-green-500 text-white' 
+                                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                              }`}
+                            >
+                              注册 Register
+                            </button>
+                            <button
+                              onClick={() => setAuthMode('forgot')}
+                              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                                authMode === 'forgot' 
+                                  ? 'bg-orange-500 text-white' 
+                                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                              }`}
+                            >
+                              忘记密码 Forgot
+                            </button>
+                          </div>
+                        </div>
+                        
+                        <div className="space-y-3">
+                          <div>
+                                                          <input
+                                type="email"
+                                placeholder="邮箱地址 / Email"
+                                value={loginEmail}
+                                onChange={e => setLoginEmail(e.target.value)}
+                                onKeyPress={e => e.key === 'Enter' && handleAuth()}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                                disabled={isAuthLoading}
+                              />
+                          </div>
+                          
+                          {authMode !== 'forgot' && (
+                            <div>
+                                                              <input
+                                  type="password"
+                                  placeholder="密码 / Password"
+                                  value={loginPassword}
+                                  onChange={e => setLoginPassword(e.target.value)}
+                                  onKeyPress={e => e.key === 'Enter' && handleAuth()}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                                  disabled={isAuthLoading}
+                                />
+                            </div>
+                          )}
+                          
+                          <button
+                            onClick={handleAuth}
+                            disabled={isAuthLoading}
+                            className={`w-full py-2 px-4 rounded-md font-medium text-sm transition-all ${
+                              isAuthLoading
+                                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                : authMode === 'login'
+                                  ? 'bg-blue-500 text-white hover:bg-blue-600'
+                                  : authMode === 'register'
+                                    ? 'bg-green-500 text-white hover:bg-green-600'
+                                    : 'bg-orange-500 text-white hover:bg-orange-600'
+                            }`}
+                          >
+                            {isAuthLoading ? (
+                              <span className="flex items-center justify-center">
+                                <i data-lucide="loader-2" className="w-4 h-4 mr-2 animate-spin"></i>
+                                处理中...
+                              </span>
+                            ) : (
+                              authMode === 'login' ? '登录 Login' :
+                              authMode === 'register' ? '注册 Register' :
+                              '发送重置链接 Send Reset Link'
+                            )}
+                          </button>
+                          
+                          {authMode === 'register' && (
+                            <div className="text-xs text-gray-500 text-center mt-2">
+                              密码至少6位字符 / Password must be at least 6 characters
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1426,7 +1538,10 @@
                       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-2 gap-3">
                         <h2 className="text-2xl font-bold flex items-center text-gray-700">
                           <i data-lucide="gift" className="w-7 h-7 mr-2.5 text-pink-500"></i>
-                          奖励商店 Reward Shop
+                          <div className="flex flex-col leading-tight">
+                            <span>奖励商店</span>
+                            <span className="text-lg text-gray-600">Reward Shop</span>
+                          </div>
                         </h2>
                         <button
                           onClick={() => setShowAddReward(!showAddReward)}
