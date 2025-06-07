@@ -143,6 +143,12 @@
           const [isAuthLoading, setIsAuthLoading] = useState(false);
           const [showLoginModal, setShowLoginModal] = useState(false);
           const [pendingAction, setPendingAction] = useState(null); // 存储待执行的动作
+          
+          // 多孩子支持
+          const [children, setChildren] = useState([]);
+          const [currentChild, setCurrentChild] = useState(null);
+          const [showChildrenManager, setShowChildrenManager] = useState(false);
+          const [newChild, setNewChild] = useState({ name: '', birth_year: new Date().getFullYear() - 5, avatar: '😊' });
 
           // 预设任务和奖励
           const DEFAULT_TASKS = [
@@ -179,45 +185,178 @@
             lucide.createIcons();
           });
 
+          // 先暂时简化：都使用user_id查询以保持兼容性
+
+          // 孩子管理函数
+          const loadChildren = async (user) => {
+            try {
+              const { data: childrenData, error } = await supabase
+                .from('children')
+                .select('*')
+                .eq('parent_id', user.id)
+                .order('created_at', { ascending: true });
+              
+              if (error) {
+                console.error('children表可能不存在，创建默认孩子:', error);
+                // 如果children表不存在，创建一个默认孩子
+                const defaultChild = {
+                  id: 'default',
+                  name: '我的宝贝',
+                  avatar: '😊',
+                  birth_year: new Date().getFullYear() - 5,
+                  parent_id: user.id
+                };
+                setChildren([defaultChild]);
+                setCurrentChild(defaultChild);
+                return;
+              }
+              
+              setChildren(childrenData || []);
+              
+              // 如果没有孩子，显示管理界面
+              if (!childrenData || childrenData.length === 0) {
+                setShowChildrenManager(true);
+              } else {
+                // 设置第一个孩子为当前孩子
+                setCurrentChild(childrenData[0]);
+              }
+            } catch (error) {
+              console.error('加载孩子列表出错，使用默认模式:', error);
+              // 创建一个默认孩子以保持兼容性
+              const defaultChild = {
+                id: 'default',
+                name: '我的宝贝',
+                avatar: '😊',
+                birth_year: new Date().getFullYear() - 5,
+                parent_id: user.id
+              };
+              setChildren([defaultChild]);
+              setCurrentChild(defaultChild);
+            }
+          };
+
+          const addChild = async () => {
+            if (!currentUser || !newChild.name.trim()) {
+              alert('请输入孩子姓名');
+              return;
+            }
+            
+            if (children.length >= 3) {
+              alert('最多只能添加3个孩子');
+              return;
+            }
+
+            try {
+              const { data, error } = await supabase
+                .from('children')
+                .insert([{
+                  parent_id: currentUser.id,
+                  name: newChild.name.trim(),
+                  birth_year: newChild.birth_year,
+                  avatar: newChild.avatar
+                }])
+                .select();
+
+              if (error) {
+                alert('添加孩子失败: ' + error.message);
+                return;
+              }
+
+              const updatedChildren = [...children, data[0]];
+              setChildren(updatedChildren);
+              
+              // 如果是第一个孩子，设为当前孩子
+              if (updatedChildren.length === 1) {
+                setCurrentChild(data[0]);
+                setShowChildrenManager(false);
+              }
+              
+              setNewChild({ name: '', birth_year: new Date().getFullYear() - 5, avatar: '😊' });
+            } catch (error) {
+              alert('添加孩子出错: ' + error.message);
+            }
+          };
+
+          const deleteChild = async (childId) => {
+            if (!confirm('确定要删除这个孩子的档案吗？所有相关数据将被删除！')) {
+              return;
+            }
+
+            try {
+              // 删除孩子相关的所有数据
+              await supabase.from('history').delete().eq('child_id', childId);
+              await supabase.from('tasks').delete().eq('child_id', childId);
+              await supabase.from('rewards').delete().eq('child_id', childId);
+              await supabase.from('children').delete().eq('id', childId);
+
+              const updatedChildren = children.filter(child => child.id !== childId);
+              setChildren(updatedChildren);
+              
+              // 如果删除的是当前孩子，选择第一个
+              if (currentChild?.id === childId) {
+                if (updatedChildren.length > 0) {
+                  setCurrentChild(updatedChildren[0]);
+                } else {
+                  setCurrentChild(null);
+                  setShowChildrenManager(true);
+                }
+              }
+            } catch (error) {
+              alert('删除失败: ' + error.message);
+            }
+          };
+
           // 加载用户数据函数
           const loadUserData = async (user) => {
             if (!user) return;
             
-            // 加载任务
-            const { data: tasksData } = await supabase.from('tasks').select('*').eq('user_id', user.id);
-            if (!tasksData || tasksData.length === 0) {
-              // 插入预设任务
-              await supabase.from('tasks').insert(
-                DEFAULT_TASKS.map(t => ({
-                  ...t,
-                  user_id: user.id
-                }))
-              );
-              const { data: newTasks } = await supabase.from('tasks').select('*').eq('user_id', user.id);
-              setTasks(newTasks || []);
-            } else {
-              setTasks(tasksData || []);
-            }
+            // 首先加载孩子列表
+            await loadChildren(user);
+          };
 
-            // 加载奖励
-            const { data: rewardsData } = await supabase.from('rewards').select('*').eq('user_id', user.id);
-            if (!rewardsData || rewardsData.length === 0) {
-              // 插入预设奖励
-              await supabase.from('rewards').insert(
-                DEFAULT_REWARDS.map(r => ({
-                  ...r,
-                  user_id: user.id
-                }))
-              );
-              const { data: newRewards } = await supabase.from('rewards').select('*').eq('user_id', user.id);
-              setRewards(newRewards || []);
-            } else {
-              setRewards(rewardsData || []);
-            }
+          // 为当前孩子加载数据（暂时简化为user_id查询）
+          const loadChildData = async (child) => {
+            if (!child || !currentUser) return;
+            
+            try {
+              // 加载任务
+              const { data: tasksData } = await supabase.from('tasks').select('*').eq('user_id', currentUser.id);
+              if (!tasksData || tasksData.length === 0) {
+                // 插入预设任务
+                await supabase.from('tasks').insert(
+                  DEFAULT_TASKS.map(t => ({
+                    ...t,
+                    user_id: currentUser.id
+                  }))
+                );
+                const { data: newTasks } = await supabase.from('tasks').select('*').eq('user_id', currentUser.id);
+                setTasks(newTasks || []);
+              } else {
+                setTasks(tasksData || []);
+              }
 
-            // 加载历史记录
-            const { data: historyData } = await supabase.from('history').select('*').eq('user_id', user.id);
-            setHistory(historyData || []);
+              // 加载奖励
+              const { data: rewardsData } = await supabase.from('rewards').select('*').eq('user_id', currentUser.id);
+              if (!rewardsData || rewardsData.length === 0) {
+                // 插入预设奖励
+                await supabase.from('rewards').insert(
+                  DEFAULT_REWARDS.map(r => ({
+                    ...r,
+                    user_id: currentUser.id
+                  }))
+                );
+                const { data: newRewards } = await supabase.from('rewards').select('*').eq('user_id', currentUser.id);
+                setRewards(newRewards || []);
+              } else {
+                setRewards(rewardsData || []);
+              }
+
+              // 加载历史记录
+              const { data: historyData } = await supabase.from('history').select('*').eq('user_id', currentUser.id);
+              setHistory(historyData || []);
+            } catch (error) {
+              console.error('加载孩子数据失败:', error);
+            }
           };
 
           // 监听认证状态变化
@@ -247,6 +386,13 @@
 
             return () => subscription.unsubscribe();
           }, []);
+
+          // 当前孩子变化时加载对应数据
+          useEffect(() => {
+            if (currentChild && currentUser) {
+              loadChildData(currentChild);
+            }
+          }, [currentChild, currentUser]);
 
           useEffect(() => {
             let total = 0;
@@ -399,16 +545,15 @@
               alert('请先登录');
               return;
             }
-            const { error } = await supabase.from('tasks').insert([
-              {
-                user_id: currentUser.id,
-                name: newTask.name,
-                nameEn: newTask.nameEn,
-                points: newTask.points,
-                icon: newTask.icon,
-                type: newTask.type
-              }
-            ]);
+            const { error } = await supabase.from('tasks').insert([{
+              user_id: currentUser.id,
+              name: newTask.name,
+              nameEn: newTask.nameEn,
+              points: newTask.points,
+              icon: newTask.icon,
+              type: newTask.type
+            }]);
+            
             if (error) {
               alert('添加任务失败: ' + error.message);
             } else {
@@ -1191,21 +1336,189 @@
 
                 </header>
 
+                {/* 孩子管理和选择器 */}
+                {currentUser && !showChildrenManager && children.length > 0 && (
+                  <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 mb-6 border border-gray-200">
+                    <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+                      <div className="flex items-center gap-3">
+                        <span className="font-medium text-gray-700">当前查看:</span>
+                        <select
+                          value={currentChild?.id || ''}
+                          onChange={(e) => {
+                            const selectedChild = children.find(child => child.id === e.target.value);
+                            setCurrentChild(selectedChild);
+                          }}
+                          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
+                        >
+                          {children.map(child => (
+                            <option key={child.id} value={child.id}>
+                              {child.avatar} {child.name} ({new Date().getFullYear() - child.birth_year}岁)
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setShowChildrenManager(true)}
+                          className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1"
+                        >
+                          <i data-lucide="users" className="w-4 h-4"></i>
+                          管理孩子
+                        </button>
+                        {children.length < 3 && (
+                          <button
+                            onClick={() => {
+                              setNewChild({ name: '', birth_year: new Date().getFullYear() - 5, avatar: '😊' });
+                              setShowChildrenManager(true);
+                            }}
+                            className="bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1"
+                          >
+                            <i data-lucide="plus" className="w-4 h-4"></i>
+                            添加孩子
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 孩子管理界面 */}
+                {currentUser && showChildrenManager && (
+                  <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 mb-6 border border-gray-200">
+                    <div className="flex items-center justify-between mb-6">
+                      <h3 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                        <i data-lucide="users" className="w-6 h-6 text-blue-500"></i>
+                        孩子管理
+                      </h3>
+                      {children.length > 0 && (
+                        <button
+                          onClick={() => setShowChildrenManager(false)}
+                          className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                        >
+                          返回
+                        </button>
+                      )}
+                    </div>
+
+                    {/* 添加新孩子表单 */}
+                    {children.length < 3 && (
+                      <div className="bg-blue-50 rounded-lg p-4 mb-6">
+                        <h4 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                          <i data-lucide="plus-circle" className="w-5 h-5 text-green-500"></i>
+                          添加新孩子 ({children.length}/3)
+                        </h4>
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">头像</label>
+                            <select
+                              value={newChild.avatar}
+                              onChange={(e) => setNewChild({ ...newChild, avatar: e.target.value })}
+                              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-lg"
+                            >
+                              {['😊', '😃', '🤗', '😎', '🥰', '🤩', '😇', '🙂', '😋', '🤓'].map(emoji => (
+                                <option key={emoji} value={emoji}>{emoji}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">姓名</label>
+                            <input
+                              type="text"
+                              value={newChild.name}
+                              onChange={(e) => setNewChild({ ...newChild, name: e.target.value })}
+                              placeholder="孩子的姓名"
+                              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">出生年份</label>
+                            <select
+                              value={newChild.birth_year}
+                              onChange={(e) => setNewChild({ ...newChild, birth_year: parseInt(e.target.value) })}
+                              className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                            >
+                              {Array.from({ length: 18 }, (_, i) => new Date().getFullYear() - i - 2).map(year => (
+                                <option key={year} value={year}>{year} ({new Date().getFullYear() - year}岁)</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="flex items-end">
+                            <button
+                              onClick={addChild}
+                              disabled={!newChild.name.trim()}
+                              className="w-full bg-green-500 hover:bg-green-600 disabled:bg-gray-300 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+                            >
+                              添加
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 现有孩子列表 */}
+                    {children.length > 0 && (
+                      <div>
+                        <h4 className="font-semibold text-gray-800 mb-4">现有孩子</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {children.map(child => (
+                            <div key={child.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-2xl">{child.avatar}</span>
+                                  <div>
+                                    <h5 className="font-semibold text-gray-800">{child.name}</h5>
+                                    <p className="text-sm text-gray-600">{new Date().getFullYear() - child.birth_year}岁</p>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    onClick={() => {
+                                      setCurrentChild(child);
+                                      setShowChildrenManager(false);
+                                    }}
+                                    className="bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs"
+                                  >
+                                    查看
+                                  </button>
+                                  <button
+                                    onClick={() => deleteChild(child.id)}
+                                    className="bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs"
+                                  >
+                                    删除
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                创建时间: {new Date(child.created_at).toLocaleDateString()}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {children.length === 0 && (
+                      <div className="text-center py-8">
+                        <div className="text-6xl mb-4">👶</div>
+                        <h4 className="text-lg font-semibold text-gray-700 mb-2">还没有添加孩子</h4>
+                        <p className="text-gray-500">请先添加一个孩子来开始使用系统</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* 登录后的控制面板 */}
-                {currentUser && (
+                {currentUser && currentChild && !showChildrenManager && (
                   <div className="bg-white rounded-xl shadow-sm p-4 sm:p-6 mb-6 border border-gray-200">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                       <div className="flex items-center gap-3">
-                        <span className="font-medium text-gray-700 text-sm sm:text-base">小朋友姓名:</span>
-                        <input
-                          type="text"
-                          value={childName}
-                          onChange={e => {
-                            setChildName(e.target.value);
-                          }}
-                          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-400 focus:border-blue-400 flex-1"
-                          placeholder="请输入姓名"
-                        />
+                        <span className="font-medium text-gray-700 text-sm sm:text-base">当前查看:</span>
+                        <div className="flex items-center gap-2 bg-blue-50 px-3 py-2 rounded-lg">
+                          <span className="text-xl">{currentChild.avatar}</span>
+                          <span className="font-semibold text-gray-800">{currentChild.name}</span>
+                          <span className="text-sm text-gray-600">({new Date().getFullYear() - currentChild.birth_year}岁)</span>
+                        </div>
                       </div>
                       
                       <div className="flex items-center gap-3">
