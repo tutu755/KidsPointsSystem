@@ -141,6 +141,8 @@
           const [loginPassword, setLoginPassword] = useState('');
           const [authMode, setAuthMode] = useState('login'); // 'login', 'register', 'forgot'
           const [isAuthLoading, setIsAuthLoading] = useState(false);
+          const [showLoginModal, setShowLoginModal] = useState(false);
+          const [pendingAction, setPendingAction] = useState(null); // 存储待执行的动作
 
           // 预设任务和奖励
           const DEFAULT_TASKS = [
@@ -176,6 +178,75 @@
           useEffect(() => {
             lucide.createIcons();
           });
+
+          // 加载用户数据函数
+          const loadUserData = async (user) => {
+            if (!user) return;
+            
+            // 加载任务
+            const { data: tasksData } = await supabase.from('tasks').select('*').eq('user_id', user.id);
+            if (!tasksData || tasksData.length === 0) {
+              // 插入预设任务
+              await supabase.from('tasks').insert(
+                DEFAULT_TASKS.map(t => ({
+                  ...t,
+                  user_id: user.id
+                }))
+              );
+              const { data: newTasks } = await supabase.from('tasks').select('*').eq('user_id', user.id);
+              setTasks(newTasks || []);
+            } else {
+              setTasks(tasksData || []);
+            }
+
+            // 加载奖励
+            const { data: rewardsData } = await supabase.from('rewards').select('*').eq('user_id', user.id);
+            if (!rewardsData || rewardsData.length === 0) {
+              // 插入预设奖励
+              await supabase.from('rewards').insert(
+                DEFAULT_REWARDS.map(r => ({
+                  ...r,
+                  user_id: user.id
+                }))
+              );
+              const { data: newRewards } = await supabase.from('rewards').select('*').eq('user_id', user.id);
+              setRewards(newRewards || []);
+            } else {
+              setRewards(rewardsData || []);
+            }
+
+            // 加载历史记录
+            const { data: historyData } = await supabase.from('history').select('*').eq('user_id', user.id);
+            setHistory(historyData || []);
+          };
+
+          // 监听认证状态变化
+          useEffect(() => {
+            // 检查当前用户状态
+            supabase.auth.getSession().then(({ data: { session } }) => {
+              if (session?.user) {
+                setCurrentUser(session.user);
+                loadUserData(session.user);
+              }
+            });
+
+            const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+              if (event === 'SIGNED_IN' && session?.user) {
+                setCurrentUser(session.user);
+                // 加载用户数据
+                await loadUserData(session.user);
+                // 执行待执行的动作并关闭登录模态框
+                executePendingAction();
+              } else if (event === 'SIGNED_OUT') {
+                setCurrentUser(null);
+                setTasks([]);
+                setRewards([]);
+                setHistory([]);
+              }
+            });
+
+            return () => subscription.unsubscribe();
+          }, []);
 
           useEffect(() => {
             let total = 0;
@@ -252,76 +323,7 @@
 
 
           // 自动为新用户插入预设任务和奖励
-          useEffect(() => {
-            if (currentUser) {
-              // 检查任务
-              console.log('准备插入预设任务');
-              supabase
-                .from('tasks')
-                .select('*')
-                .eq('user_id', currentUser.id)
-                .then(async ({ data, error }) => {
-                  if (!error && data.length === 0) {
-                    await supabase.from('tasks').insert(
-                      DEFAULT_TASKS.map(t => ({
-                        user_id: currentUser.id,
-                        name: t.name,
-                        nameEn: t.nameEn || '',
-                        points: t.points,
-                        icon: t.icon || '',
-                        type: t.type || 'daily'
-                      }))
-                    );
-                    // 重新加载
-                    const { data: newTasks } = await supabase.from('tasks').select('*').eq('user_id', currentUser.id);
-                    setTasks(newTasks || []);
-                    console.log('setTasks', newTasks);
-                  } else {
-                    setTasks(data || []);
-                  }
-                });
-
-              // 检查奖励
-              supabase
-                .from('rewards')
-                .select('*')
-                .eq('user_id', currentUser.id)
-                .then(async ({ data, error }) => {
-                  if (!error && data.length === 0) {
-                    // 没有奖励，插入预设
-                    await supabase.from('rewards').insert(
-                      DEFAULT_REWARDS.map(r => ({
-                        ...r,
-                        user_id: currentUser.id
-                      }))
-                    );
-                    // 重新加载
-                    const { data: newRewards } = await supabase.from('rewards').select('*').eq('user_id', currentUser.id);
-                    setRewards(newRewards || []);
-                  } else {
-                    setRewards(data || []);
-                  }
-                });
-            } else {
-              setTasks([]);
-              setRewards([]);
-            }
-          }, [currentUser]);
-
-          // 用 Supabase 查询 history
-          useEffect(() => {
-            if (currentUser) {
-              supabase
-                .from('history')
-                .select('*')
-                .eq('user_id', currentUser.id)
-                .then(({ data, error }) => {
-                  if (!error) setHistory(data || []);
-                });
-            } else {
-              setHistory([]);
-            }
-          }, [currentUser]);
+          // 数据加载现在由认证状态监听处理
 
           // 改为从 localStorage 中读取 childName
           useEffect(() => {
@@ -808,14 +810,13 @@
 
           // 认证函数
           const handleAuth = async () => {
-            if (!loginEmail.trim()) {
-              alert('请输入邮箱 / Please enter email');
-              return;
-            }
-            
             setIsAuthLoading(true);
-            
             try {
+              if (!loginEmail.trim()) {
+                alert('请输入邮箱 / Please enter email');
+                return;
+              }
+              
               if (authMode === 'register') {
                 if (!loginPassword.trim()) {
                   alert('请输入密码 / Please enter password');
@@ -856,9 +857,9 @@
                 if (error) {
                   alert('登录失败 / Login failed: ' + error.message);
                 } else {
-                  alert('登录成功！/ Login successful!');
                   setLoginEmail('');
                   setLoginPassword('');
+                  // 登录成功后的处理将在认证状态监听中处理
                 }
               } else if (authMode === 'forgot') {
                 const { error } = await supabase.auth.resetPasswordForEmail(loginEmail.trim(), {
@@ -1083,15 +1084,80 @@
             setRewards(data || []);
           };
 
+          // 处理功能卡片点击
+          const handleFeatureClick = (feature) => {
+            if (currentUser) {
+              // 已登录，直接执行功能
+              switch(feature) {
+                case 'tasks':
+                  setViewMode('today');
+                  break;
+                case 'tracking':
+                  // 显示统计信息（已在页面顶部）
+                  break;
+                case 'rewards':
+                  setViewMode('today');
+                  setShowRewards(true);
+                  break;
+                case 'history':
+                  setViewMode('history');
+                  setTimeout(() => {
+                    document.getElementById('history-view')?.scrollIntoView({ behavior: 'smooth' });
+                  }, 100);
+                  break;
+              }
+            } else {
+              // 未登录，保存待执行动作并显示登录框
+              setPendingAction(feature);
+              setShowLoginModal(true);
+            }
+          };
+
+          // 登录成功后执行待执行的动作
+          const executePendingAction = () => {
+            if (pendingAction) {
+              handleFeatureClick(pendingAction);
+              setPendingAction(null);
+            }
+            setShowLoginModal(false);
+          };
+
           return (
-            <div className="min-h-screen bg-gradient-to-br from-blue-100 to-purple-100 p-2 sm:p-4 font-[sans-serif]">
+            <div className="min-h-screen bg-gradient-to-br from-yellow-100 via-pink-100 to-blue-100 p-2 sm:p-4 font-[sans-serif]">
               <div className="max-w-5xl mx-auto main-container">
                 {/* Header Section */}
-                <header className="bg-white rounded-xl shadow-2xl p-5 sm:p-6 mb-6">
-                  <h1 className="text-3xl sm:text-4xl font-bold text-center mb-1 text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600">
-                    Kids' Mission System
-                  </h1>
-                  <p className="text-center text-gray-500 mb-5 text-sm">每日任务与奖励系统</p>
+                <header className="bg-gradient-to-r from-pink-400 via-purple-400 to-blue-400 rounded-xl shadow-2xl p-5 sm:p-6 mb-6 relative overflow-hidden">
+                  {/* 可爱的背景装饰 */}
+                  <div className="absolute top-2 left-4 text-2xl animate-bounce" style={{animationDelay: '0s'}}>🌟</div>
+                  <div className="absolute top-4 right-8 text-xl animate-bounce" style={{animationDelay: '0.5s'}}>🎈</div>
+                  <div className="absolute bottom-2 left-8 text-lg animate-bounce" style={{animationDelay: '1s'}}>🎯</div>
+                  <div className="absolute bottom-3 right-4 text-xl animate-bounce" style={{animationDelay: '1.5s'}}>✨</div>
+                  
+                  {!currentUser ? (
+                    // 未登录时显示大标题
+                    <div className="text-center relative z-10 flex flex-col justify-center min-h-[140px] py-6">
+                      <h1 className="text-3xl sm:text-5xl md:text-6xl font-bold text-white mb-2 drop-shadow-lg leading-tight">
+                        🚀 小冒险家任务系统 🏆
+                      </h1>
+                      <p className="text-base sm:text-lg md:text-xl text-white/80 font-medium drop-shadow mb-6 leading-relaxed">
+                        Little Explorer Mission System
+                      </p>
+                      <p className="text-lg sm:text-xl md:text-2xl text-white/90 font-semibold drop-shadow mb-3 leading-relaxed">
+                        每天完成任务，赚取积分，兑换奖励！
+                      </p>
+                      <div className="text-base sm:text-lg text-white/80 leading-relaxed">
+                        Complete tasks • Earn points • Get rewards!
+                      </div>
+                    </div>
+                  ) : (
+                    // 登录后显示简洁标题
+                    <div className="text-center relative z-10 flex flex-col justify-center min-h-[80px] py-3">
+                      <h1 className="text-2xl sm:text-3xl font-bold text-white mb-2 drop-shadow-lg leading-tight">
+                        🎮 小冒险家任务系统
+                      </h1>
+                      <p className="text-white/90 text-sm leading-relaxed">欢迎回来，准备开始新的冒险吧！</p>
+                    </div>
+                  )}
                   <div 
                     className="header-login-area"
                     style={{ 
@@ -1155,169 +1221,79 @@
                         </button>
                       </div>
                     )}
-                    {!currentUser && (
-                      <div className="bg-white rounded-lg shadow-md p-4 border max-w-md mx-auto">
-                        <div className="mb-3 text-center">
-                          <div className="flex justify-center gap-1">
-                            <button
-                              onClick={() => setAuthMode('login')}
-                              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
-                                authMode === 'login' 
-                                  ? 'bg-blue-500 text-white' 
-                                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                              }`}
-                            >
-                              登录 Login
-                            </button>
-                            <button
-                              onClick={() => setAuthMode('register')}
-                              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
-                                authMode === 'register' 
-                                  ? 'bg-green-500 text-white' 
-                                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                              }`}
-                            >
-                              注册 Register
-                            </button>
-                            <button
-                              onClick={() => setAuthMode('forgot')}
-                              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
-                                authMode === 'forgot' 
-                                  ? 'bg-orange-500 text-white' 
-                                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                              }`}
-                            >
-                              忘记密码 Forgot
-                            </button>
-                          </div>
-                        </div>
-                        
-                        <div className="space-y-3">
-                          <div>
-                                                          <input
-                                type="email"
-                                placeholder="邮箱地址 / Email"
-                                value={loginEmail}
-                                onChange={e => setLoginEmail(e.target.value)}
-                                onKeyPress={e => e.key === 'Enter' && handleAuth()}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                                disabled={isAuthLoading}
-                              />
-                          </div>
-                          
-                          {authMode !== 'forgot' && (
-                            <div>
-                                                              <input
-                                  type="password"
-                                  placeholder="密码 / Password"
-                                  value={loginPassword}
-                                  onChange={e => setLoginPassword(e.target.value)}
-                                  onKeyPress={e => e.key === 'Enter' && handleAuth()}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                                  disabled={isAuthLoading}
-                                />
-                            </div>
-                          )}
-                          
-                          <button
-                            onClick={handleAuth}
-                            disabled={isAuthLoading}
-                            className={`w-full py-2 px-4 rounded-md font-medium text-sm transition-all ${
-                              isAuthLoading
-                                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                                : authMode === 'login'
-                                  ? 'bg-blue-500 text-white hover:bg-blue-600'
-                                  : authMode === 'register'
-                                    ? 'bg-green-500 text-white hover:bg-green-600'
-                                    : 'bg-orange-500 text-white hover:bg-orange-600'
-                            }`}
-                          >
-                            {isAuthLoading ? (
-                              <span className="flex items-center justify-center">
-                                <i data-lucide="loader-2" className="w-4 h-4 mr-2 animate-spin"></i>
-                                处理中...
-                              </span>
-                            ) : (
-                              authMode === 'login' ? '登录 Login' :
-                              authMode === 'register' ? '注册 Register' :
-                              '发送重置链接 Send Reset Link'
-                            )}
-                          </button>
-                          
-                          {authMode === 'register' && (
-                            <div className="text-xs text-gray-500 text-center mt-2">
-                              密码至少6位字符 / Password must be at least 6 characters
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  <div className="mb-4 flex justify-center items-center gap-2">
-                    <span className="font-medium text-gray-700">小朋友姓名 / Name:</span>
-                    <input
-                      type="text"
-                      value={childName}
-                      onChange={e => {
-                        setChildName(e.target.value);
-                      }}
-                      className="border rounded px-2 py-1"
-                      placeholder="请输入姓名"
-                      style={{ minWidth: 120 }}
-                    />
-                  </div>
-                  {/* 补录历史日期选择器，仅支持最近三天 */}
-                  <div className="mb-4 flex justify-center items-center gap-2">
-                    <span className="font-medium text-gray-700">补录日期 / Make-up Date:</span>
-                    <select
-                      value={getLocalDateStr(selectedDate)}
-                      onChange={e => {
-                        const [y, m, d] = e.target.value.split('-');
-                        setSelectedDate(new Date(Number(y), Number(m)-1, Number(d)));
-                      }}
-                      className="border rounded px-2 py-1"
-                    >
-                      {[0,1,2].map(offset => {
-                        const d = new Date();
-                        d.setDate(d.getDate() - offset);
-                        const val = getLocalDateStr(d);
-                        const label = offset === 0 ? '今天 Today' : offset === 1 ? '昨天 Yesterday' : '前天 2 Days Ago';
-                        return <option key={val} value={val}>{label}（{val}）</option>;
-                      })}
-                    </select>
+
                   </div>
                   
-                  <div className="flex justify-center gap-2 sm:gap-3 mb-5">
-                    <button
-                      onClick={() => {setSelectedDate(new Date()); setViewMode('today');}}
-                      className={`px-3 py-2 sm:px-4 sm:py-2.5 rounded-lg font-medium text-sm sm:text-base flex items-center transition-all
-                        ${ viewMode === 'today' && selectedDate.toDateString() === new Date().toDateString() ? 'bg-blue-600 text-white shadow-md' : 'bg-gray-200 text-gray-700 hover:bg-gray-300' }`}
-                    >
-                      <i data-lucide="clock" className="w-4 h-4 sm:w-5 sm:h-5 mr-1.5"></i>
-                      今日任务 Today's Tasks
-                    </button>
-                    <button
-                      onClick={() => {
-                        setViewMode('history');
-                        setTimeout(() => {
-                          document.getElementById('history-view')?.scrollIntoView({ behavior: 'smooth' });
-                        }, 100);
-                      }}
-                      className={`px-3 py-2 sm:px-4 sm:py-2.5 rounded-lg font-medium text-sm sm:text-base flex items-center transition-all
-                        ${ viewMode === 'history' ? 'bg-purple-600 text-white shadow-md' : 'bg-gray-200 text-gray-700 hover:bg-gray-300' }`}
-                    >
-                      <i data-lucide="calendar-days" className="w-4 h-4 sm:w-5 sm:h-5 mr-1.5"></i>
-                      历史记录 History
-                    </button>
-                  </div>
+                  {/* 登录后的控制面板 */}
+                  {currentUser && (
+                    <div>
+                      <div className="mb-4 flex justify-center items-center gap-2">
+                        <span className="font-medium text-gray-700">小朋友姓名 / Name:</span>
+                        <input
+                          type="text"
+                          value={childName}
+                          onChange={e => {
+                            setChildName(e.target.value);
+                          }}
+                          className="border rounded px-2 py-1"
+                          placeholder="请输入姓名"
+                          style={{ minWidth: 120 }}
+                        />
+                      </div>
+                      {/* 补录历史日期选择器，仅支持最近三天 */}
+                      <div className="mb-4 flex justify-center items-center gap-2">
+                        <span className="font-medium text-gray-700">补录日期 / Make-up Date:</span>
+                        <select
+                          value={getLocalDateStr(selectedDate)}
+                          onChange={e => {
+                            const [y, m, d] = e.target.value.split('-');
+                            setSelectedDate(new Date(Number(y), Number(m)-1, Number(d)));
+                          }}
+                          className="border rounded px-2 py-1"
+                        >
+                          {[0,1,2].map(offset => {
+                            const d = new Date();
+                            d.setDate(d.getDate() - offset);
+                            const val = getLocalDateStr(d);
+                            const label = offset === 0 ? '今天 Today' : offset === 1 ? '昨天 Yesterday' : '前天 2 Days Ago';
+                            return <option key={val} value={val}>{label}（{val}）</option>;
+                          })}
+                        </select>
+                      </div>
+                      
+                      <div className="flex justify-center gap-2 sm:gap-3 mb-5">
+                        <button
+                          onClick={() => {setSelectedDate(new Date()); setViewMode('today');}}
+                          className={`px-3 py-2 sm:px-4 sm:py-2.5 rounded-lg font-medium text-sm sm:text-base flex items-center transition-all
+                            ${ viewMode === 'today' && selectedDate.toDateString() === new Date().toDateString() ? 'bg-blue-600 text-white shadow-md' : 'bg-gray-200 text-gray-700 hover:bg-gray-300' }`}
+                        >
+                          <i data-lucide="clock" className="w-4 h-4 sm:w-5 sm:h-5 mr-1.5"></i>
+                          今日任务 Today's Tasks
+                        </button>
+                        <button
+                          onClick={() => {
+                            setViewMode('history');
+                            setTimeout(() => {
+                              document.getElementById('history-view')?.scrollIntoView({ behavior: 'smooth' });
+                            }, 100);
+                          }}
+                          className={`px-3 py-2 sm:px-4 sm:py-2.5 rounded-lg font-medium text-sm sm:text-base flex items-center transition-all
+                            ${ viewMode === 'history' ? 'bg-purple-600 text-white shadow-md' : 'bg-gray-200 text-gray-700 hover:bg-gray-300' }`}
+                        >
+                          <i data-lucide="calendar-days" className="w-4 h-4 sm:w-5 sm:h-5 mr-1.5"></i>
+                          历史记录 History
+                        </button>
+                      </div>
 
-                  {viewMode === 'today' && selectedDate.toDateString() !== new Date().toDateString() && (
-                    <div className="text-center mb-4 p-2.5 bg-yellow-100 border border-yellow-300 rounded-lg">
-                      <p className="text-sm text-yellow-800">
-                        <i data-lucide="alert-circle" className="w-4 h-4 inline mr-1"></i>
-                        正在查看日期: <span className="font-bold">{selectedDate.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })}</span>.
-                        <button onClick={() => setSelectedDate(new Date())} className="ml-2 text-blue-600 hover:underline text-xs font-semibold">返回今日 Back to Today</button>
-                      </p>
+                      {viewMode === 'today' && selectedDate.toDateString() !== new Date().toDateString() && (
+                        <div className="text-center mb-4 p-2.5 bg-yellow-100 border border-yellow-300 rounded-lg">
+                          <p className="text-sm text-yellow-800">
+                            <i data-lucide="alert-circle" className="w-4 h-4 inline mr-1"></i>
+                            正在查看日期: <span className="font-bold">{selectedDate.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })}</span>.
+                            <button onClick={() => setSelectedDate(new Date())} className="ml-2 text-blue-600 hover:underline text-xs font-semibold">返回今日 Back to Today</button>
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
                 </header>
@@ -1347,25 +1323,77 @@
                     </div>
                   )}
 
-                  {/* 未登录欢迎页面 */}
+                  {/* 欢迎页面 - 显示所有功能卡片 */}
                   {!currentUser && (
-                    <div className="bg-white rounded-xl shadow-lg p-8 text-center">
-                      <div className="mb-4">
-                        <i data-lucide="user-plus" className="w-16 h-16 mx-auto text-blue-500 mb-4"></i>
+                    <div className="relative">
+                      {/* 大大的欢迎提示 - 手机适配 */}
+                      <div className="text-center mb-6 sm:mb-8 px-4 sm:px-0">
+                        <div className="text-4xl sm:text-6xl mb-3 sm:mb-4 animate-bounce">🎯</div>
+                        <h2 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-2">
+                          选择你的冒险模式！
+                        </h2>
+                        <p className="text-base sm:text-lg text-gray-600">
+                          Choose your adventure mode!
+                        </p>
                       </div>
-                      <h2 className="text-2xl font-bold text-gray-700 mb-3">
-                        欢迎使用 Kids' Mission System
-                      </h2>
-                      <p className="text-gray-600 mb-6">
-                        请先登录以查看和管理任务积分系统<br/>
-                        Please login to view and manage the task point system
-                      </p>
-                      <div className="text-sm text-gray-500">
-                        登录后您可以：<br/>
-                        • 查看和完成每日任务<br/>
-                        • 追踪积分和完成率<br/>
-                        • 兑换奖励<br/>
-                        • 查看历史记录
+                        
+                      {/* 超级炫酷的功能卡片 - 完全响应式设计 */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 mb-8 px-2 sm:px-0">
+                        <button 
+                          onClick={() => handleFeatureClick('tasks')}
+                          className="group bg-gradient-to-br from-green-400 to-emerald-500 rounded-2xl sm:rounded-3xl p-6 sm:p-8 transform transition-all hover:scale-105 sm:hover:scale-110 hover:rotate-1 shadow-xl sm:shadow-2xl hover:shadow-green-300/50 border-2 sm:border-4 border-white"
+                        >
+                          <div className="text-4xl sm:text-6xl mb-3 sm:mb-4 group-hover:animate-spin">📋</div>
+                          <h3 className="text-xl sm:text-2xl font-bold text-white mb-1 sm:mb-2 drop-shadow-lg">每日任务</h3>
+                          <p className="text-base sm:text-lg text-white/90 font-semibold">Daily Tasks</p>
+                          <p className="text-sm sm:text-base text-white/80 mt-2">完成任务赚积分 💰<br/>Complete tasks & earn points</p>
+                        </button>
+                        
+                        <button 
+                          onClick={() => handleFeatureClick('tracking')}
+                          className="group bg-gradient-to-br from-blue-400 to-sky-500 rounded-2xl sm:rounded-3xl p-6 sm:p-8 transform transition-all hover:scale-105 sm:hover:scale-110 hover:-rotate-1 shadow-xl sm:shadow-2xl hover:shadow-blue-300/50 border-2 sm:border-4 border-white"
+                        >
+                          <div className="text-4xl sm:text-6xl mb-3 sm:mb-4 group-hover:animate-pulse">📊</div>
+                          <h3 className="text-xl sm:text-2xl font-bold text-white mb-1 sm:mb-2 drop-shadow-lg">积分查看</h3>
+                          <p className="text-base sm:text-lg text-white/90 font-semibold">Points Tracking</p>
+                          <p className="text-sm sm:text-base text-white/80 mt-2">看看你有多棒 🏅<br/>See how awesome you are</p>
+                        </button>
+                        
+                        <button 
+                          onClick={() => handleFeatureClick('rewards')}
+                          className="group bg-gradient-to-br from-pink-400 to-rose-500 rounded-2xl sm:rounded-3xl p-6 sm:p-8 transform transition-all hover:scale-105 sm:hover:scale-110 hover:rotate-1 shadow-xl sm:shadow-2xl hover:shadow-pink-300/50 border-2 sm:border-4 border-white"
+                        >
+                          <div className="text-4xl sm:text-6xl mb-3 sm:mb-4 group-hover:animate-bounce">🎁</div>
+                          <h3 className="text-xl sm:text-2xl font-bold text-white mb-1 sm:mb-2 drop-shadow-lg">奖励商店</h3>
+                          <p className="text-base sm:text-lg text-white/90 font-semibold">Reward Shop</p>
+                          <p className="text-sm sm:text-base text-white/80 mt-2">用积分买好东西 🛍️<br/>Buy cool stuff with points</p>
+                        </button>
+                        
+                        <button 
+                          onClick={() => handleFeatureClick('history')}
+                          className="group bg-gradient-to-br from-purple-400 to-violet-500 rounded-2xl sm:rounded-3xl p-6 sm:p-8 transform transition-all hover:scale-105 sm:hover:scale-110 hover:-rotate-1 shadow-xl sm:shadow-2xl hover:shadow-purple-300/50 border-2 sm:border-4 border-white"
+                        >
+                          <div className="text-4xl sm:text-6xl mb-3 sm:mb-4 group-hover:animate-pulse">📈</div>
+                          <h3 className="text-xl sm:text-2xl font-bold text-white mb-1 sm:mb-2 drop-shadow-lg">成长记录</h3>
+                          <p className="text-base sm:text-lg text-white/90 font-semibold">History</p>
+                          <p className="text-sm sm:text-base text-white/80 mt-2">看看你的进步 📚<br/>Track your progress</p>
+                        </button>
+                      </div>
+                      
+                      {/* 底部激励文字 - 手机适配 */}
+                      <div className="text-center px-4 sm:px-0">
+                        <div className="flex justify-center items-center space-x-3 sm:space-x-4 text-3xl sm:text-4xl mb-3 sm:mb-4">
+                          <span className="animate-bounce" style={{animationDelay: '0s'}}>🌟</span>
+                          <span className="animate-bounce" style={{animationDelay: '0.2s'}}>🚀</span>
+                          <span className="animate-bounce" style={{animationDelay: '0.4s'}}>🏆</span>
+                          <span className="animate-bounce" style={{animationDelay: '0.6s'}}>🎉</span>
+                        </div>
+                        <p className="text-lg sm:text-xl font-bold text-gray-700">
+                          成为最棒的小冒险家！
+                        </p>
+                        <p className="text-sm sm:text-base text-gray-600">
+                          Become the best little explorer!
+                        </p>
                       </div>
                     </div>
                   )}
@@ -1616,6 +1644,153 @@
                   </footer>
                 </div> {/* 关闭 content-area */}
               </div> {/* 关闭 main-container */}
+
+              {/* 超级可爱的儿童化登录模态框 */}
+              {showLoginModal && (
+                <div 
+                  className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+                  onClick={(e) => {
+                    if (e.target === e.currentTarget) {
+                      setShowLoginModal(false);
+                      setPendingAction(null);
+                    }
+                  }}
+                >
+                  <div className="bg-gradient-to-br from-pink-200 via-purple-200 to-blue-200 rounded-2xl sm:rounded-3xl shadow-2xl p-6 sm:p-8 w-11/12 max-w-lg mx-4 relative overflow-hidden border-2 sm:border-4 border-white">
+                    {/* 可爱的背景装饰 */}
+                    <div className="absolute top-3 left-4 text-3xl animate-bounce" style={{animationDelay: '0s'}}>🎪</div>
+                    <div className="absolute top-6 right-6 text-2xl animate-bounce" style={{animationDelay: '0.5s'}}>🎈</div>
+                    <div className="absolute bottom-4 left-6 text-2xl animate-bounce" style={{animationDelay: '1s'}}>🌟</div>
+                    <div className="absolute bottom-3 right-4 text-3xl animate-bounce" style={{animationDelay: '1.5s'}}>🚀</div>
+                    
+                    {/* 标题区域 */}
+                    <div className="text-center mb-5 sm:mb-6 relative z-10">
+                      <div className="text-4xl sm:text-5xl mb-2 sm:mb-3 animate-pulse">🔐</div>
+                      <h3 className="text-xl sm:text-2xl font-bold text-gray-800 mb-1 sm:mb-2">
+                        开始你的冒险！
+                      </h3>
+                      <p className="text-sm sm:text-base text-gray-600 font-medium">
+                        Start your adventure!
+                      </p>
+                      <button
+                        onClick={() => {
+                          setShowLoginModal(false);
+                          setPendingAction(null);
+                        }}
+                        className="absolute top-0 right-0 w-8 h-8 bg-red-400 hover:bg-red-500 text-white rounded-full flex items-center justify-center transition-all transform hover:scale-110"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    
+                    {/* 超级可爱的模式选择按钮 */}
+                    <div className="mb-6 relative z-10">
+                      <div className="flex justify-center gap-2">
+                        <button
+                          onClick={() => setAuthMode('login')}
+                          className={`px-3 sm:px-4 py-2 sm:py-3 rounded-xl sm:rounded-2xl text-xs sm:text-sm font-bold transition-all transform hover:scale-105 ${
+                            authMode === 'login' 
+                              ? 'bg-blue-500 text-white shadow-lg scale-105' 
+                              : 'bg-white/70 text-gray-700 hover:bg-white/90'
+                          }`}
+                        >
+                          🎮 登录<br/>Login
+                        </button>
+                        <button
+                          onClick={() => setAuthMode('register')}
+                          className={`px-3 sm:px-4 py-2 sm:py-3 rounded-xl sm:rounded-2xl text-xs sm:text-sm font-bold transition-all transform hover:scale-105 ${
+                            authMode === 'register' 
+                              ? 'bg-green-500 text-white shadow-lg scale-105' 
+                              : 'bg-white/70 text-gray-700 hover:bg-white/90'
+                          }`}
+                        >
+                          ⭐ 注册<br/>Register
+                        </button>
+                        <button
+                          onClick={() => setAuthMode('forgot')}
+                          className={`px-3 sm:px-4 py-2 sm:py-3 rounded-xl sm:rounded-2xl text-xs sm:text-sm font-bold transition-all transform hover:scale-105 ${
+                            authMode === 'forgot' 
+                              ? 'bg-orange-500 text-white shadow-lg scale-105' 
+                              : 'bg-white/70 text-gray-700 hover:bg-white/90'
+                          }`}
+                        >
+                          🔑 忘记<br/>Forgot
+                        </button>
+                      </div>
+                    </div>
+                    
+                    {/* 输入框区域 */}
+                    <div className="space-y-4 relative z-10">
+                      <div className="relative">
+                        <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-xl">📧</div>
+                        <input
+                          type="email"
+                          placeholder="邮箱地址 / Email"
+                          value={loginEmail}
+                          onChange={e => setLoginEmail(e.target.value)}
+                          onKeyPress={e => e.key === 'Enter' && handleAuth()}
+                          className="w-full pl-10 sm:pl-12 pr-3 sm:pr-4 py-3 sm:py-4 bg-white/90 border-2 sm:border-3 border-purple-300 rounded-xl sm:rounded-2xl focus:ring-2 sm:focus:ring-4 focus:ring-purple-300 focus:border-purple-500 text-base sm:text-lg font-medium placeholder-gray-500"
+                          disabled={isAuthLoading}
+                        />
+                      </div>
+                      
+                      {authMode !== 'forgot' && (
+                        <div className="relative">
+                          <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-xl">🔒</div>
+                          <input
+                            type="password"
+                            placeholder="密码 / Password"
+                            value={loginPassword}
+                            onChange={e => setLoginPassword(e.target.value)}
+                            onKeyPress={e => e.key === 'Enter' && handleAuth()}
+                            className="w-full pl-10 sm:pl-12 pr-3 sm:pr-4 py-3 sm:py-4 bg-white/90 border-2 sm:border-3 border-purple-300 rounded-xl sm:rounded-2xl focus:ring-2 sm:focus:ring-4 focus:ring-purple-300 focus:border-purple-500 text-base sm:text-lg font-medium placeholder-gray-500"
+                            disabled={isAuthLoading}
+                          />
+                        </div>
+                      )}
+                      
+                      {/* 超级酷炫的行动按钮 */}
+                      <button
+                        onClick={handleAuth}
+                        disabled={isAuthLoading}
+                        className={`w-full py-3 sm:py-4 px-4 sm:px-6 rounded-xl sm:rounded-2xl font-bold text-base sm:text-lg transition-all transform hover:scale-105 shadow-xl ${
+                          isAuthLoading
+                            ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                            : authMode === 'login'
+                              ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700'
+                              : authMode === 'register'
+                                ? 'bg-gradient-to-r from-green-500 to-green-600 text-white hover:from-green-600 hover:to-green-700'
+                                : 'bg-gradient-to-r from-orange-500 to-orange-600 text-white hover:from-orange-600 hover:to-orange-700'
+                        }`}
+                      >
+                        {isAuthLoading ? (
+                          <span className="flex items-center justify-center">
+                            <div className="w-6 h-6 mr-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                            处理中... Loading...
+                          </span>
+                        ) : (
+                          <span className="flex items-center justify-center">
+                            {authMode === 'login' ? '🎮 开始冒险 Start Adventure!' :
+                             authMode === 'register' ? '⭐ 加入我们 Join Us!' :
+                             '🔑 找回密码 Reset Password!'}
+                          </span>
+                        )}
+                      </button>
+                      
+                      {authMode === 'register' && (
+                        <div className="text-center">
+                          <div className="bg-yellow-100 border-2 border-yellow-300 rounded-xl sm:rounded-2xl p-2 sm:p-3">
+                            <span className="text-base sm:text-lg">💡</span>
+                            <span className="text-xs sm:text-sm text-yellow-800 font-medium ml-2">
+                              密码至少6位字符哦！Password must be at least 6 characters
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           );
         }
