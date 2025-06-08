@@ -211,7 +211,9 @@
               if (childrenData && childrenData.length > 0) {
                 setCurrentChild(childrenData[0]);
                 console.log('设置当前孩子:', childrenData[0].name);
+                setShowChildrenManager(false);
               } else {
+                setCurrentChild(null);
                 setShowChildrenManager(true);
               }
               
@@ -223,6 +225,11 @@
           };
 
           const addChild = async () => {
+            console.log('开始添加孩子...');
+            console.log('当前用户:', currentUser?.email);
+            console.log('新孩子信息:', newChild);
+            console.log('现有孩子数量:', children.length);
+            
             if (!currentUser || !newChild.name.trim()) {
               alert('请输入孩子姓名');
               return;
@@ -682,6 +689,13 @@
           
           const toggleTask = async (category, taskId) => {
             if (isUpdating) return;
+            
+            // 检查是否选择了孩子
+            if (!currentChild) {
+              alert('请先选择一个孩子 / Please select a child first');
+              return;
+            }
+            
             const dateStr = getLocalDateStr(selectedDate);
             const todayStr = getLocalDateStr(new Date());
             const task = tasks.find(t => t.id === taskId);
