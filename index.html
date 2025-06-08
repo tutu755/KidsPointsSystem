@@ -1207,7 +1207,27 @@
                 });
                 
                 if (error) {
-                  alert('注册失败 / Registration failed: ' + error.message);
+                  // 根据错误类型显示友好的中英文提示
+                  let errorMessage = '注册失败 / Registration failed';
+                  
+                  if (error.message.includes('already registered') || 
+                      error.message.includes('already exists') ||
+                      error.message.includes('duplicate')) {
+                    errorMessage = '该邮箱已注册，请直接登录或使用其他邮箱！/ Email already registered, please login or use another email!';
+                  } else if (error.message.includes('password') && 
+                             (error.message.includes('short') || error.message.includes('weak'))) {
+                    errorMessage = '密码太短，请使用至少6位字符！/ Password too short, please use at least 6 characters!';
+                  } else if (error.message.includes('email') && 
+                             error.message.includes('invalid')) {
+                    errorMessage = '邮箱格式不正确，请检查邮箱地址！/ Invalid email format, please check your email address!';
+                  } else if (error.message.includes('rate limit') || 
+                             error.message.includes('too many')) {
+                    errorMessage = '注册尝试过于频繁，请稍后再试！/ Too many registration attempts, please try again later!';
+                  } else {
+                    errorMessage = '注册失败，请检查网络连接！/ Registration failed, please check your network connection!';
+                  }
+                  
+                  alert(errorMessage);
                 } else {
                   alert('注册成功！您现在可以直接登录使用 / Registration successful! You can now login directly');
                   setLoginEmail('');
@@ -1227,7 +1247,25 @@
                 });
                 
                 if (error) {
-                  alert('登录失败 / Login failed: ' + error.message);
+                  // 根据错误类型显示友好的中英文提示
+                  let errorMessage = '登录失败 / Login failed';
+                  
+                  if (error.message.includes('Invalid login credentials') || 
+                      error.message.includes('invalid_credentials') ||
+                      error.message.includes('password') ||
+                      error.message.includes('incorrect')) {
+                    errorMessage = '密码错误，请重新输入！/ Incorrect password, please try again!';
+                  } else if (error.message.includes('email') || 
+                             error.message.includes('user not found')) {
+                    errorMessage = '邮箱不存在，请检查邮箱地址！/ Email not found, please check your email address!';
+                  } else if (error.message.includes('rate limit') || 
+                             error.message.includes('too many')) {
+                    errorMessage = '登录尝试过于频繁，请稍后再试！/ Too many login attempts, please try again later!';
+                  } else {
+                    errorMessage = '登录失败，请检查网络连接！/ Login failed, please check your network connection!';
+                  }
+                  
+                  alert(errorMessage);
                 } else {
                   setLoginEmail('');
                   setLoginPassword('');
