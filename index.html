@@ -1557,57 +1557,69 @@
                     <p className="text-base sm:text-lg text-gray-600">Little Explorer Mission System</p>
                   </div>
                   
-                  {/* 用户信息固定在右上角 */}
-                  {currentUser && (
-                    <div className="absolute top-4 right-4 sm:right-6 flex items-center space-x-3 z-50">
-                      <span className="text-sm text-gray-700 hidden sm:block font-medium">
-                        欢迎，{currentUser.email}
-                      </span>
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          console.log('退出按钮被点击');
-                          
-                          // 使用简单的方式退出
-                          const confirmLogout = () => {
-                            console.log('确认退出');
-                            // 清理所有状态
-                            setCurrentUser(null);
-                            setChildren([]);
-                            setCurrentChild(null);
-                            setTasks([]);
-                            setRewards([]);
-                            setHistory([]);
-                            setTotalPoints(0);
-                            localStorage.clear();
+                  {/* 用户信息或登录按钮固定在右上角 */}
+                  <div className="absolute top-4 right-4 sm:right-6 flex items-center space-x-3 z-50">
+                    {currentUser ? (
+                      // 已登录：显示用户信息和退出按钮
+                      <>
+                        <span className="text-sm text-gray-700 hidden sm:block font-medium">
+                          欢迎，{currentUser.email}
+                        </span>
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            console.log('退出按钮被点击');
                             
-                            // 执行Supabase退出
-                            supabase.auth.signOut().then(() => {
-                              console.log('Supabase退出成功');
-                              setTimeout(() => {
-                                window.location.reload();
-                              }, 100);
-                            }).catch((error) => {
-                              console.error('Supabase退出失败:', error);
-                              // 即使Supabase退出失败，也强制刷新页面
-                              setTimeout(() => {
-                                window.location.reload();
-                              }, 100);
-                            });
-                          };
-                          
-                          // 立即执行退出
-                          confirmLogout();
-                        }}
-                        className="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center space-x-1 shadow-lg cursor-pointer"
-                        style={{ position: 'relative', zIndex: 9999, pointerEvents: 'auto' }}
+                            // 使用简单的方式退出
+                            const confirmLogout = () => {
+                              console.log('确认退出');
+                              // 清理所有状态
+                              setCurrentUser(null);
+                              setChildren([]);
+                              setCurrentChild(null);
+                              setTasks([]);
+                              setRewards([]);
+                              setHistory([]);
+                              setTotalPoints(0);
+                              localStorage.clear();
+                              
+                              // 执行Supabase退出
+                              supabase.auth.signOut().then(() => {
+                                console.log('Supabase退出成功');
+                                setTimeout(() => {
+                                  window.location.reload();
+                                }, 100);
+                              }).catch((error) => {
+                                console.error('Supabase退出失败:', error);
+                                // 即使Supabase退出失败，也强制刷新页面
+                                setTimeout(() => {
+                                  window.location.reload();
+                                }, 100);
+                              });
+                            };
+                            
+                            // 立即执行退出
+                            confirmLogout();
+                          }}
+                          className="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center space-x-1 shadow-lg cursor-pointer"
+                          style={{ position: 'relative', zIndex: 9999, pointerEvents: 'auto' }}
+                        >
+                          <i data-lucide="log-out" className="w-4 h-4"></i>
+                          <span className="hidden sm:inline">退出</span>
+                        </button>
+                      </>
+                    ) : (
+                      // 未登录：显示小的登录按钮
+                      <button
+                        onClick={() => setShowLoginModal(true)}
+                        className="bg-white/90 hover:bg-white text-gray-700 hover:text-gray-900 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center space-x-1 shadow-lg backdrop-blur-sm border border-gray-200 hover:border-gray-300"
                       >
-                        <i data-lucide="log-out" className="w-4 h-4"></i>
-                        <span className="hidden sm:inline">退出</span>
+                        <i data-lucide="log-in" className="w-4 h-4"></i>
+                        <span className="hidden sm:inline">登录</span>
                       </button>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
 
                 {/* Hero Banner Section */}
@@ -1625,9 +1637,18 @@
                       <h2 className="text-2xl sm:text-4xl md:text-5xl font-bold text-white mb-4 drop-shadow-lg leading-tight">
                         每天完成任务，赚取积分，兑换奖励！
                       </h2>
-                      <p className="text-lg sm:text-xl text-white/90 font-medium drop-shadow leading-relaxed">
+                      <p className="text-lg sm:text-xl text-white/90 font-medium drop-shadow leading-relaxed mb-6">
                         Complete tasks • Earn points • Get rewards!
                       </p>
+                      
+                      {/* 登录按钮 */}
+                      <button
+                        onClick={() => setShowLoginModal(true)}
+                        className="bg-white/20 backdrop-blur-sm hover:bg-white/30 text-white font-semibold px-6 py-3 rounded-full border-2 border-white/40 hover:border-white/60 transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl flex items-center gap-2 mx-auto"
+                      >
+                        <i data-lucide="log-in" className="w-5 h-5"></i>
+                        立即开始 / Start Now
+                      </button>
                     </div>
                   ) : (
                     // 登录后显示简洁信息
