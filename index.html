@@ -321,7 +321,7 @@
                 } else {
                   alert('添加孩子失败: ' + (error.message || '未知错误'));
                   return;
-                }
+            }
               }
 
               const updatedChildren = [...children, data[0]];
@@ -381,7 +381,7 @@
             } catch (error) {
               console.error('删除孩子时出错:', error);
               alert('删除失败: ' + (error.message || '未知错误'));
-            }
+                  }
           };
 
           // 加载用户数据函数
@@ -421,7 +421,7 @@
                 alert('数据加载较慢，已切换到离线模式。你仍可以正常使用系统！');
             } else {
                 alert('网络连接问题，已切换到离线模式: ' + error.message);
-              }
+            }
             }
           };
 
@@ -939,6 +939,19 @@
             const [editPoints, setEditPoints] = useState(Math.abs(task.points));
             const [editIcon, setEditIcon] = useState(task.icon);
 
+            // 新增：长按/右键弹窗逻辑
+            const [showActionSheet, setShowActionSheet] = useState(false);
+            let longPressTimer = null;
+
+            const handleTouchStart = () => {
+              longPressTimer = setTimeout(() => {
+                setShowActionSheet(true);
+              }, 500);
+            };
+            const handleTouchEnd = () => {
+              clearTimeout(longPressTimer);
+            };
+
             const handleSave = () => {
               const updatedPoints = isPenalty ? -Math.abs(editPoints) : Math.abs(editPoints);
               handleUpdateTask(task.id, {
@@ -949,6 +962,9 @@
               });
               setEditing(false);
             };
+
+            // 判断是否PC端
+            const isPC = typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches;
 
             if (editing) {
               return (
@@ -1008,37 +1024,37 @@
               );
             }
 
+            // 优化：label+checkbox写法，提升移动端体验
             return (
-              <div className="relative group">
-                <div
-                  onClick={() => canEditOrComplete && !isUpdating && toggleTask(category, task.id)}
-                  className={`${!canEditOrComplete || isUpdating ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} 
-                                p-4 rounded-lg border-2 transition-all duration-150 ease-in-out
-                                ${ isPenalty 
+              <div
+                className={`relative group flex items-center cursor-pointer select-none p-4 rounded-lg border-2 transition-all duration-150 ease-in-out
+                  ${isPenalty 
                                     ? 'bg-red-50 border-red-200 hover:shadow-md' 
                                     : isCompleted 
                                         ? 'bg-green-100 border-green-400 hover:border-green-500 shadow-sm' 
                                         : 'bg-white border-gray-200 hover:border-blue-400 hover:shadow-md'
                                 }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <span className="text-3xl">{task.icon}</span>
-                      <div>
+                style={{ opacity: !canEditOrComplete || isUpdating ? 0.6 : 1, pointerEvents: !canEditOrComplete || isUpdating ? 'none' : 'auto' }}
+                onClick={() => canEditOrComplete && !isUpdating && toggleTask(category, task.id)}
+                onTouchStart={!isPC ? handleTouchStart : undefined}
+                onTouchEnd={!isPC ? handleTouchEnd : undefined}
+                onTouchMove={!isPC ? handleTouchEnd : undefined}
+                onContextMenu={isPC ? (e) => { e.preventDefault(); setShowActionSheet(true); } : undefined}
+              >
+                <span className="text-3xl mr-3">{task.icon}</span>
+                <div className="flex-1">
                         <h3 className="font-semibold text-gray-800">{task.name}</h3>
                         <p className="text-sm text-gray-500">{task.nameEn}</p>
                       </div>
-                    </div>
-                    <div className="flex items-center space-x-2">
                       <span className={`font-bold text-lg ${isPenalty ? 'text-red-600' : 'text-blue-600'}`}>
                         {task.points > 0 && !isPenalty ? '+' : ''}{task.points}
                       </span>
                       {isCompleted ? 
-                        <i data-lucide="check-circle" className="text-green-500 w-6 h-6"></i> : 
-                        <i data-lucide="circle" className="text-gray-300 w-6 h-6"></i>
+                  <i data-lucide="check-circle" className="text-green-500 w-6 h-6 ml-2"></i> : 
+                  <i data-lucide="circle" className="text-gray-300 w-6 h-6 ml-2"></i>
                       }
-                    </div>
-                  </div>
+                {/* 编辑/删除按钮：PC端hover显示，移动端不显示 */}
+                {isPC && (
                   <div className="absolute bottom-2 left-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                     <button
                       type="button"
@@ -1057,10 +1073,37 @@
                       <i data-lucide="x" className="w-3 h-3"></i>
                     </button>
                   </div>
+                )}
+                {/* 移动端长按弹窗 */}
+                {!isPC && showActionSheet && (
+                  <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30" onClick={() => setShowActionSheet(false)}>
+                    <div className="bg-white rounded-t-2xl shadow-2xl w-full max-w-sm mx-auto p-6 mb-4 animate-slide-up" onClick={e => e.stopPropagation()}>
+                      <div className="flex flex-col gap-3">
+                        <button
+                          className="w-full py-3 rounded-lg bg-blue-500 text-white font-bold text-lg mb-2"
+                          onClick={() => { setEditing(true); setShowActionSheet(false); }}
+                        >
+                          编辑任务 Edit Task
+                        </button>
+                        <button
+                          className="w-full py-3 rounded-lg bg-red-500 text-white font-bold text-lg"
+                          onClick={() => { deleteTask(task.id); setShowActionSheet(false); }}
+                        >
+                          删除任务 Delete Task
+                        </button>
+                        <button
+                          className="w-full py-2 rounded-lg bg-gray-200 text-gray-700 font-medium mt-2"
+                          onClick={() => setShowActionSheet(false)}
+                        >
+                          取消 Cancel
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
                   {!canEditOrComplete && (
                     <p className="text-xs text-gray-400 mt-1 text-center">已过修改期限 (3天) / Modification period expired (3 days)</p>
                   )}
-                </div>
               </div>
             );
           };
@@ -1094,7 +1137,7 @@
                   <h2 className="text-2xl font-bold text-gray-700 flex items-center">
                     <i data-lucide="calendar-days" className="w-7 h-7 inline-block mr-2 align-text-bottom"></i>
                     历史记录 History - 最近30天
-                  </h2>
+                </h2>
                   <button
                     onClick={() => {
                       setViewMode('today');
@@ -2170,6 +2213,31 @@
             console.log('登录流程完成');
           };
 
+          const handleLogout = async () => {
+            try {
+              setCurrentUser(null);
+              setChildren([]);
+              setCurrentChild(null);
+              setTasks([]);
+              setRewards([]);
+              setHistory([]);
+              setTotalPoints(0);
+
+              // 主动清理本地存储
+              localStorage.clear();
+              sessionStorage.clear();
+
+              // 等待Supabase退出完成
+              await supabase.auth.signOut();
+
+              // 强制刷新页面
+              window.location.reload();
+            } catch (e) {
+              // 即使失败也刷新
+              window.location.reload();
+            }
+          };
+
           return (
             <div className="min-h-screen bg-gradient-to-br from-yellow-100 via-pink-100 to-blue-100 p-2 sm:p-4 font-[sans-serif]">
               <div className="max-w-5xl mx-auto main-container">
@@ -2229,7 +2297,7 @@
                           }}
                           className="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center space-x-1 shadow-lg cursor-pointer"
                           style={{ position: 'relative', zIndex: 9999, pointerEvents: 'auto' }}
-                        >
+                      >
                           <i data-lucide="log-out" className="w-4 h-4"></i>
                           <span className="hidden sm:inline">退出</span>
                       </button>
@@ -2306,7 +2374,7 @@
                             if (selectedChild) {
                               setCurrentChild(selectedChild);
                               console.log('切换到孩子:', selectedChild.name);
-                            }
+                          }
                           }}
                           className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
                         >
@@ -2548,7 +2616,7 @@
                           <button onClick={() => setSelectedDate(new Date())} className="ml-3 text-blue-600 hover:underline font-medium">
                             返回今日
                           </button>
-                        </p>
+                      </p>
                       </div>
                     )}
                     </div>
@@ -2592,7 +2660,7 @@
                           Choose your adventure mode!
                         </p>
                       </div>
-                        
+
                       {/* 超级炫酷的功能卡片 - 完全响应式设计 */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 mb-8 px-2 sm:px-0">
                         <button 
